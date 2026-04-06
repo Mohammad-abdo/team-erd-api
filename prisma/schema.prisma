@@ -1,0 +1,392 @@
+// DBForge — application database schema
+// https://www.prisma.io/docs
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum ProjectMemberRole {
+  LEADER
+  EDITOR
+  VIEWER
+  COMMENTER
+}
+
+enum ErdRelationType {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_MANY
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+enum ApiRouteStatus {
+  DRAFT
+  STABLE
+  DEPRECATED
+}
+
+enum ApiParameterLocation {
+  PATH
+  QUERY
+  BODY
+  HEADER
+}
+
+enum CommentableType {
+  ERD_TABLE
+  ERD_RELATION
+  API_ROUTE
+}
+
+enum PermissionResource {
+  ERD
+  API
+  COMMENTS
+  EXPORTS
+}
+
+enum PermissionAction {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String    @db.VarChar(200)
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  avatar       String?
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+
+  projectsLed    Project[]           @relation("ProjectLeader")
+  projectMembers       ProjectMember[]
+  projectMembersInvited ProjectMember[] @relation("MemberInvitedBy")
+
+  erdTablesCreated    ErdTable[]    @relation("ErdTableCreatedBy")
+  erdRelationsCreated ErdRelation[] @relation("ErdRelationCreatedBy")
+  apiRoutesCreated    ApiRoute[]    @relation("ApiRouteCreatedBy")
+
+  comments         Comment[]
+  activityLogs     ActivityLog[]
+  notifications    Notification[]
+  permissions      ProjectPermission[] @relation("PermissionUser")
+  permissionsGranted ProjectPermission[] @relation("PermissionGrantedBy")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  token     String   @unique @db.VarChar(128)
+  expiresAt DateTime @map("expires_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Project {
+  id          String            @id @default(cuid())
+  name        String            @db.VarChar(200)
+  slug        String            @unique @db.VarChar(200)
+  description String?           @db.Text
+  leaderId       String            @map("leader_id")
+  visibility     ProjectVisibility @default(PRIVATE)
+  healthStage    String?           @map("health_stage") @db.VarChar(30)
+  lastActivityAt DateTime?         @map("last_activity_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  leader User @relation("ProjectLeader", fields: [leaderId], references: [id], onDelete: Restrict)
+
+  members      ProjectMember[]
+  invitations  ProjectInvitation[]
+  erdTables    ErdTable[]
+  erdRelations ErdRelation[]
+  apiGroups    ApiGroup[]
+  comments     Comment[]
+  activityLogs ActivityLog[]
+  permissions  ProjectPermission[]
+
+  @@index([leaderId])
+  @@index([healthStage])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String            @id @default(cuid())
+  projectId  String            @map("project_id")
+  userId     String            @map("user_id")
+  role       ProjectMemberRole
+  invitedById String?          @map("invited_by")
+  joinedAt   DateTime          @default(now()) @map("joined_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?   @relation("MemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model ProjectInvitation {
+  id         String    @id @default(cuid())
+  projectId  String    @map("project_id")
+  email      String
+  token      String    @unique
+  role       ProjectMemberRole
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("project_invitations")
+}
+
+model ErdTable {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  name        String
+  label       String?
+  color       String?
+  groupName   String?  @map("group_name")
+  x           Float    @default(0)
+  y           Float    @default(0)
+  description String?  @db.Text
+  createdById String   @map("created_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("ErdTableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  columns        ErdColumn[]
+  relationsFrom  ErdRelation[] @relation("ErdRelationFromTable")
+  relationsTo    ErdRelation[] @relation("ErdRelationToTable")
+
+  @@index([projectId])
+  @@map("erd_tables")
+}
+
+model ErdColumn {
+  id           String   @id @default(cuid())
+  tableId      String   @map("table_id")
+  name         String
+  dataType     String   @map("data_type")
+  isPk         Boolean  @default(false) @map("is_pk")
+  isFk         Boolean  @default(false) @map("is_fk")
+  isNullable   Boolean  @default(true) @map("is_nullable")
+  isUnique     Boolean  @default(false) @map("is_unique")
+  defaultValue String?  @map("default_value")
+  description  String?  @db.Text
+  sortOrder    Int      @default(0) @map("sort_order")
+
+  table ErdTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  relationsFrom ErdRelation[] @relation("ErdRelationFromColumn")
+  relationsTo   ErdRelation[] @relation("ErdRelationToColumn")
+
+  @@index([tableId])
+  @@map("erd_columns")
+}
+
+model ErdRelation {
+  id           String           @id @default(cuid())
+  projectId    String           @map("project_id")
+  fromTableId  String           @map("from_table_id")
+  toTableId    String           @map("to_table_id")
+  relationType ErdRelationType  @map("relation_type")
+  fromColumnId String?          @map("from_column_id")
+  toColumnId   String?          @map("to_column_id")
+  label        String?
+  createdById  String           @map("created_by")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromTable ErdTable  @relation("ErdRelationFromTable", fields: [fromTableId], references: [id], onDelete: Cascade)
+  toTable   ErdTable  @relation("ErdRelationToTable", fields: [toTableId], references: [id], onDelete: Cascade)
+  fromColumn ErdColumn? @relation("ErdRelationFromColumn", fields: [fromColumnId], references: [id], onDelete: SetNull)
+  toColumn   ErdColumn? @relation("ErdRelationToColumn", fields: [toColumnId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("ErdRelationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([fromTableId])
+  @@index([toTableId])
+  @@map("erd_relations")
+}
+
+model ApiGroup {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  name        String
+  prefix      String   @default("")
+  description String?  @db.Text
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  routes  ApiRoute[]
+
+  @@index([projectId])
+  @@map("api_groups")
+}
+
+model ApiRoute {
+  id            String          @id @default(cuid())
+  groupId       String          @map("group_id")
+  method        HttpMethod
+  path          String
+  summary       String?
+  description   String?         @db.Text
+  authRequired  Boolean         @default(false) @map("auth_required")
+  roleRequired  String?         @map("role_required")
+  status        ApiRouteStatus  @default(DRAFT)
+  createdById   String          @map("created_by")
+
+  group     ApiGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("ApiRouteCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  parameters ApiParameter[]
+  responses  ApiRouteResponse[]
+
+  @@index([groupId])
+  @@map("api_routes")
+}
+
+model ApiParameter {
+  id          String               @id @default(cuid())
+  routeId     String               @map("route_id")
+  location    ApiParameterLocation
+  name        String
+  dataType    String               @map("data_type")
+  isRequired  Boolean              @default(false) @map("is_required")
+  description String?              @db.Text
+  example     String?              @db.Text
+
+  route ApiRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([routeId])
+  @@map("api_parameters")
+}
+
+model ApiRouteResponse {
+  id          String @id @default(cuid())
+  routeId     String @map("route_id")
+  statusCode  Int    @map("status_code")
+  description String? @db.Text
+  exampleJson String? @map("example_json") @db.LongText
+
+  route ApiRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([routeId])
+  @@map("api_responses")
+}
+
+model Comment {
+  id               String          @id @default(cuid())
+  projectId        String          @map("project_id")
+  commentableType  CommentableType @map("commentable_type")
+  commentableId    String          @map("commentable_id")
+  userId           String          @map("user_id")
+  body             String          @db.Text
+  parentId         String?         @map("parent_id")
+  resolvedAt       DateTime?       @map("resolved_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent  Comment? @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentThread")
+
+  @@index([projectId])
+  @@index([commentableType, commentableId])
+  @@map("comments")
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  type      String
+  title     String
+  body      String?   @db.Text
+  data      Json?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model ProjectPermission {
+  id         String             @id @default(cuid())
+  projectId  String             @map("project_id")
+  userId     String             @map("user_id")
+  resource   PermissionResource
+  action     PermissionAction
+  grantedById String?           @map("granted_by")
+  grantedAt  DateTime           @default(now()) @map("granted_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation("PermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User?   @relation("PermissionGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, userId, resource, action])
+  @@index([projectId])
+  @@map("project_permissions")
+}
