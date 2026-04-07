@@ -34,6 +34,26 @@ app.use(
     credentials: true,
   }),
 );
+
+/** Public health checks — mounted before JSON body parser and rate limit (load balancers / uptime monitors). */
+function healthLiveness(_req, res) {
+  res.json({ ok: true, service: "dbforge-api" });
+}
+
+async function healthReadiness(_req, res) {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok: true, db: true });
+  } catch {
+    res.status(503).json({ ok: false, db: false });
+  }
+}
+
+app.get("/health", healthLiveness);
+app.get("/api/health", healthLiveness);
+app.get("/ready", healthReadiness);
+app.get("/api/ready", healthReadiness);
+
 app.use(express.json({ limit: "1mb" }));
 app.use(
   rateLimit({
@@ -43,19 +63,6 @@ app.use(
     legacyHeaders: false,
   }),
 );
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "dbforge-api" });
-});
-
-app.get("/ready", async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok: true, db: true });
-  } catch {
-    res.status(503).json({ ok: false, db: false });
-  }
-});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
