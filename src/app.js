@@ -27,6 +27,9 @@ import reportRoutes from "./modules/report/report.routes.js";
 
 const app = express();
 
+// Trust the Apache reverse proxy so req.ip and rate-limit headers are correct.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 app.use(
   cors({
