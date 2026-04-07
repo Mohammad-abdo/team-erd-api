@@ -35,6 +35,9 @@ app.use(helmet());
 // Log all requests at info level.
 app.use((req, res, next)=>{
   console.log("Request received at", new Date().toISOString());
+  console.log("Method:", req.method);
+  console.log("URL:", req.url);
+
   next();
 })
 app.use(
