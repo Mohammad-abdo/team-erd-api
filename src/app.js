@@ -31,6 +31,12 @@ const app = express();
 app.set("trust proxy", 1);
 
 app.use(helmet());
+
+// Log all requests at info level.
+app.use((req, res, next)=>{
+  console.log("Request received at", new Date().toISOString());
+  next();
+})
 app.use(
   cors({
     origin: config.corsOrigin,
