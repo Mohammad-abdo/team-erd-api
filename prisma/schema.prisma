@@ -94,6 +94,7 @@ model User {
   notifications    Notification[]
   permissions      ProjectPermission[] @relation("PermissionUser")
   permissionsGranted ProjectPermission[] @relation("PermissionGrantedBy")
+  apiTestSettings  ApiTestSetting[]
 
   @@map("users")
 }
@@ -142,8 +143,9 @@ model Project {
   erdRelations ErdRelation[]
   apiGroups    ApiGroup[]
   comments     Comment[]
-  activityLogs ActivityLog[]
-  permissions  ProjectPermission[]
+  activityLogs    ActivityLog[]
+  permissions     ProjectPermission[]
+  apiTestSettings ApiTestSetting[]
 
   @@index([leaderId])
   @@index([healthStage])
@@ -371,6 +373,23 @@ model Notification {
 
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+model ApiTestSetting {
+  id        String  @id @default(cuid())
+  projectId String  @map("project_id")
+  userId    String  @map("user_id")
+  baseUrl   String  @default("http://localhost:3000") @map("base_url") @db.VarChar(500)
+  authToken String? @map("auth_token") @db.Text
+  headers   Json?
+  body      String? @db.LongText
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@map("api_test_settings")
 }
 
 model ProjectPermission {

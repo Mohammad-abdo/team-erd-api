@@ -44,6 +44,33 @@ async function assertResponseOnRoute(projectId, routeId, responseId) {
   return r;
 }
 
+export async function getTestSettings(projectId, userId) {
+  const row = await prisma.apiTestSetting.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+  });
+  return row ?? { baseUrl: "http://localhost:3000", authToken: "", headers: [], body: "" };
+}
+
+export async function saveTestSettings(projectId, userId, input) {
+  return prisma.apiTestSetting.upsert({
+    where: { projectId_userId: { projectId, userId } },
+    create: {
+      projectId,
+      userId,
+      baseUrl: input.baseUrl ?? "http://localhost:3000",
+      authToken: input.authToken ?? "",
+      headers: input.headers ?? [],
+      body: input.body ?? "",
+    },
+    update: {
+      ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl }),
+      ...(input.authToken !== undefined && { authToken: input.authToken }),
+      ...(input.headers !== undefined && { headers: input.headers }),
+      ...(input.body !== undefined && { body: input.body }),
+    },
+  });
+}
+
 export async function listGroups(projectId) {
   return prisma.apiGroup.findMany({
     where: { projectId },

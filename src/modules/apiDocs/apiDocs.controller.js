@@ -1,6 +1,16 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import * as apiDocsService from "./apiDocs.service.js";
 
+export const getTestSettings = asyncHandler(async (req, res) => {
+  const settings = await apiDocsService.getTestSettings(req.params.projectId, req.user.sub);
+  res.json({ settings });
+});
+
+export const saveTestSettings = asyncHandler(async (req, res) => {
+  const settings = await apiDocsService.saveTestSettings(req.params.projectId, req.user.sub, req.body);
+  res.json({ settings });
+});
+
 export const listGroups = asyncHandler(async (req, res) => {
   const groups = await apiDocsService.listGroups(req.params.projectId);
   res.json({ groups });

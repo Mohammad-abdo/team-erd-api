@@ -26,6 +26,9 @@ r.use(loadProjectMember);
 const viewer = requireProjectRole(ProjectMemberRole.VIEWER);
 const editor = requireProjectRole(ProjectMemberRole.EDITOR);
 
+r.get("/test-settings", viewer, apiDocsController.getTestSettings);
+r.put("/test-settings", viewer, apiDocsController.saveTestSettings);
+
 r.get("/groups", viewer, apiDocsController.listGroups);
 r.post("/groups", editor, validate(createGroupSchema), apiDocsController.createGroup);
 r.put("/groups/:groupId", editor, validate(updateGroupSchema), apiDocsController.updateGroup);
