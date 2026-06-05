@@ -2,8 +2,10 @@ import { randomBytes } from "crypto";
 import { ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { emitToProject } from "../../sockets/emit.js";
+import { emitToProject, emitToUser } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
+import { sendEmail } from "../../lib/email.js";
+import { config } from "../../config/index.js";
 
 const INVITE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -82,7 +84,7 @@ export async function inviteMember({ projectId, invitedById, email, role }) {
   emitToProject(projectId, "members:updated", { at: Date.now() });
 
   if (existingUser) {
-    await prisma.notification.create({
+    const notification = await prisma.notification.create({
       data: {
         userId: existingUser.id,
         type: "project_invite",
@@ -91,7 +93,15 @@ export async function inviteMember({ projectId, invitedById, email, role }) {
         data: { projectId, invitationId: invitation.id, token },
       },
     });
+    emitToUser(existingUser.id, "notification:new", { notification });
   }
+
+  const inviteUrl = `${config.appUrl}/invite?token=${token}`;
+  await sendEmail({
+    to: normalized,
+    subject: `Invitation to ${project.name} on DBForge`,
+    text: `You have been invited to collaborate on "${project.name}" as ${role}.\n\nAccept the invitation:\n${inviteUrl}\n\nThis link expires in 7 days.`,
+  });
 
   return invitation;
 }

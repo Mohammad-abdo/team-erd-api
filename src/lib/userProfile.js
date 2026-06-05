@@ -1,0 +1,40 @@
+import { prisma } from "./prisma.js";
+
+const userPublicSelect = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  platformRole: true,
+  isActive: true,
+  createdAt: true,
+};
+
+export async function enrichUserProfile(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      ...userPublicSelect,
+      teamMemberships: {
+        include: {
+          team: { select: { id: true, name: true, slug: true, color: true, icon: true } },
+        },
+      },
+    },
+  });
+  if (!user) return null;
+  const { teamMemberships, ...rest } = user;
+  return {
+    ...rest,
+    teams: teamMemberships.map((m) => ({
+      id: m.team.id,
+      name: m.team.name,
+      slug: m.team.slug,
+      color: m.team.color,
+      icon: m.team.icon,
+      role: m.role,
+    })),
+  };
+}
+
+export { userPublicSelect };

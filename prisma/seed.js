@@ -13,6 +13,8 @@ import {
   PermissionResource,
   PermissionAction,
   ProjectVisibility,
+  PlatformRole,
+  TeamRole,
   HttpMethod,
   ApiRouteStatus,
   ApiParameterLocation,
@@ -40,8 +42,19 @@ async function main() {
   for (const u of USERS) {
     const user = await prisma.user.upsert({
       where: { email: u.email },
-      create: { email: u.email, name: u.name, passwordHash, isActive: true },
-      update: { name: u.name, passwordHash, isActive: true },
+      create: {
+        email: u.email,
+        name: u.name,
+        passwordHash,
+        isActive: true,
+        platformRole: u.key === "admin" ? PlatformRole.SUPER_ADMIN : PlatformRole.MEMBER,
+      },
+      update: {
+        name: u.name,
+        passwordHash,
+        isActive: true,
+        platformRole: u.key === "admin" ? PlatformRole.SUPER_ADMIN : PlatformRole.MEMBER,
+      },
     });
     byKey[u.key] = user;
   }
@@ -50,6 +63,45 @@ async function main() {
   const editor = byKey.editor;
   const viewer = byKey.viewer;
   const commenter = byKey.commenter;
+
+  console.log("Seeding company teams…");
+  const TEAM_DEFS = [
+    { slug: "frontend", name: "Frontend", color: "#2563eb", icon: "layout", members: ["admin", "editor"] },
+    { slug: "backend", name: "Backend", color: "#0d9488", icon: "server", members: ["admin", "editor", "viewer"] },
+    { slug: "mobile", name: "Mobile", color: "#7c3aed", icon: "smartphone", members: ["editor"] },
+    { slug: "ui-ux", name: "UI/UX", color: "#db2777", icon: "palette", members: ["commenter"] },
+    { slug: "devops", name: "DevOps", color: "#d97706", icon: "wrench", members: ["admin"] },
+  ];
+
+  const teamsBySlug = {};
+  for (const t of TEAM_DEFS) {
+    const team = await prisma.team.upsert({
+      where: { slug: t.slug },
+      create: {
+        name: t.name,
+        slug: t.slug,
+        color: t.color,
+        icon: t.icon,
+        description: `${t.name} squad`,
+        createdById: admin.id,
+      },
+      update: { name: t.name, color: t.color, icon: t.icon },
+    });
+    teamsBySlug[t.slug] = team;
+    for (const key of t.members) {
+      const u = byKey[key];
+      if (!u) continue;
+      await prisma.teamMember.upsert({
+        where: { teamId_userId: { teamId: team.id, userId: u.id } },
+        create: {
+          teamId: team.id,
+          userId: u.id,
+          role: key === "admin" ? TeamRole.TEAM_LEAD : TeamRole.MEMBER,
+        },
+        update: {},
+      });
+    }
+  }
 
   const existing = await prisma.project.findUnique({ where: { slug: PROJECT_SLUG } });
   if (existing) {
@@ -541,18 +593,52 @@ async function main() {
     ],
   });
 
+  console.log("Assigning project to Backend team…");
+  if (teamsBySlug.backend) {
+    await prisma.teamProject.upsert({
+      where: { teamId_projectId: { teamId: teamsBySlug.backend.id, projectId: project.id } },
+      create: { teamId: teamsBySlug.backend.id, projectId: project.id },
+      update: {},
+    });
+  }
+
+  console.log("Seeding project templates…");
+  await prisma.projectTemplate.upsert({
+    where: { slug: "rest-api-starter" },
+    create: {
+      name: "REST API Starter",
+      slug: "rest-api-starter",
+      description: "Empty API groups scaffold for new backend services",
+      isPublic: true,
+      createdById: admin.id,
+      apiJson: {
+        groups: [
+          {
+            name: "Health",
+            prefix: "/api",
+            routes: [{ method: "GET", path: "/health", summary: "Health check", status: "STABLE" }],
+          },
+        ],
+      },
+    },
+    update: {},
+  });
+
   /* ────────────────────────────────────
    *  DONE
    * ──────────────────────────────────── */
   console.log("\n=== Seed Complete ===\n");
   console.log("Project:", project.name, `(${project.slug})`, "id:", project.id);
   console.log("\nData created:");
+  console.log("  5 company teams (Frontend, Backend, Mobile, UI/UX, DevOps)");
   console.log("  6 ERD tables with columns and 8 relations");
   console.log("  4 API groups, 13 routes with parameters and responses");
   console.log("  7 comments (with replies)");
   console.log("  18 activity log entries");
   console.log("  5 notifications");
   console.log("  6 permission grants");
+  console.log("  1 project template");
+  console.log("\nSuper admin:", admin.email, "(platformRole: SUPER_ADMIN)");
   console.log("\nLog in with any account; password for all:", SEED_PASSWORD);
   console.log("\nAccounts:");
   for (const u of USERS) {

@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { ProjectMemberRole } from "@prisma/client";
 import { requireAuth } from "../../middleware/auth.js";
 import {
   loadProjectMember,
-  requireProjectRole,
+  requireProjectPermission,
+  PermissionResource,
+  PermissionAction,
 } from "../../middleware/projectAccess.js";
 import * as exportController from "./export.controller.js";
 
@@ -11,7 +12,7 @@ const r = Router({ mergeParams: true });
 
 r.use(requireAuth);
 r.use(loadProjectMember);
-r.use(requireProjectRole(ProjectMemberRole.VIEWER));
+r.use(requireProjectPermission(PermissionResource.EXPORTS, PermissionAction.VIEW));
 
 r.get("/sql", exportController.sql);
 r.get("/json", exportController.json);

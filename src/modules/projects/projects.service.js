@@ -43,13 +43,31 @@ const projectDashboardInclude = (userId) => ({
   },
 });
 
-export async function listProjectsForUser(userId) {
+function projectAccessWhere(userId, teamId) {
+  const base = [
+    { leaderId: userId },
+    { members: { some: { userId } } },
+    { teamProjects: { some: { team: { members: { some: { userId } } } } } },
+  ];
+  if (teamId) {
+    return {
+      AND: [
+        { OR: base },
+        { teamProjects: { some: { teamId } } },
+      ],
+    };
+  }
+  return { OR: base };
+}
+
+export async function listProjectsForUser(userId, { teamId } = {}) {
   return prisma.project.findMany({
-    where: {
-      OR: [{ leaderId: userId }, { members: { some: { userId } } }],
-    },
+    where: projectAccessWhere(userId, teamId),
     orderBy: { createdAt: "desc" },
-    include: projectDashboardInclude(userId),
+    include: {
+      ...projectDashboardInclude(userId),
+      teamProjects: { include: { team: { select: { id: true, name: true, slug: true, color: true } } } },
+    },
   });
 }
 
@@ -75,6 +93,14 @@ export async function createProject(userId, input) {
       },
     });
 
+    const teamIds = Array.isArray(input.teamIds) ? input.teamIds.filter(Boolean) : [];
+    if (teamIds.length) {
+      await tx.teamProject.createMany({
+        data: teamIds.map((teamId) => ({ teamId, projectId: p.id })),
+        skipDuplicates: true,
+      });
+    }
+
     return p;
   });
 
@@ -96,9 +122,12 @@ export async function getProjectByIdForUser(projectId, userId) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
-      OR: [{ leaderId: userId }, { members: { some: { userId } } }],
+      ...projectAccessWhere(userId),
     },
-    include: projectDashboardInclude(userId),
+    include: {
+      ...projectDashboardInclude(userId),
+      teamProjects: { include: { team: { select: { id: true, name: true, slug: true, color: true } } } },
+    },
   });
 
   if (!project) {

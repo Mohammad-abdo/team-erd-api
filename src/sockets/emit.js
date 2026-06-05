@@ -13,3 +13,12 @@ export function attachSocketServer(io) {
 export function emitToProject(projectId, event, payload) {
   ioRef?.to(`project:${projectId}`).emit(event, payload ?? {});
 }
+
+/**
+ * @param {string} userId
+ * @param {string} event
+ * @param {unknown} [payload]
+ */
+export function emitToUser(userId, event, payload) {
+  ioRef?.to(`user:${userId}`).emit(event, payload ?? {});
+}

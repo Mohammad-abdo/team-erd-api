@@ -3,6 +3,9 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { signAccessToken, persistRefreshToken } from "../../lib/tokens.js";
+import { sendEmail } from "../../lib/email.js";
+import { config } from "../../config/index.js";
+import { enrichUserProfile } from "../../lib/userProfile.js";
 
 const SALT_ROUNDS = 10;
 
@@ -49,15 +52,10 @@ export async function loginUser({ email, password }) {
 
   const accessToken = signAccessToken({ sub: user.id, email: user.email });
   const refresh = await persistRefreshToken(user.id);
+  const profile = await enrichUserProfile(user.id);
 
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-      createdAt: user.createdAt,
-    },
+    user: profile,
     accessToken,
     refreshToken: refresh.token,
     refreshExpiresAt: refresh.expiresAt,
@@ -98,7 +96,14 @@ export async function requestPasswordReset(email) {
     },
   });
 
-  return { devToken: token };
+  const resetUrl = `${config.appUrl}/auth/reset-password?token=${token}`;
+  await sendEmail({
+    to: normalized,
+    subject: "Reset your DBForge password",
+    text: `Use this link to reset your password (valid for 1 hour):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+  });
+
+  return { devToken: config.isProd ? undefined : token };
 }
 
 export async function resetPasswordWithToken(token, password) {

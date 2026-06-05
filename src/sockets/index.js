@@ -23,6 +23,11 @@ export function registerSockets(io) {
   });
 
   io.on("connection", (socket) => {
+    const userId = socket.data.userId;
+    if (userId) {
+      socket.join(`user:${userId}`);
+    }
+
     socket.on("project:join", async (projectId, ack) => {
       const reply = typeof ack === "function" ? ack : () => {};
 

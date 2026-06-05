@@ -1,19 +1,9 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import { enrichUserProfile } from "../../lib/userProfile.js";
 
 export async function getUserById(id) {
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      avatar: true,
-      isActive: true,
-      createdAt: true,
-    },
-  });
-  /* Valid JWT but no row (e.g. DB reset / reseed) — use 401 so clients refresh or clear session, not a silent 404. */
+  const user = await enrichUserProfile(id);
   if (!user) {
     throw new HttpError(401, "Invalid session");
   }
@@ -29,14 +19,6 @@ export async function updateUserProfile(userId, data) {
         avatar: data.avatar === "" || data.avatar === null ? null : data.avatar,
       }),
     },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      avatar: true,
-      isActive: true,
-      createdAt: true,
-    },
   });
-  return user;
+  return enrichUserProfile(user.id);
 }

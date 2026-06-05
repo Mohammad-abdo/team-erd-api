@@ -34,9 +34,16 @@ function serializeProject(project) {
   };
 }
 
+function serializeTeams(project) {
+  return (project.teamProjects ?? []).map((tp) => tp.team);
+}
+
 export const list = asyncHandler(async (req, res) => {
-  const rows = await projectsService.listProjectsForUser(req.user.sub);
-  res.json({ projects: rows.map(serializeProject) });
+  const teamId = req.query.teamId ? String(req.query.teamId) : undefined;
+  const rows = await projectsService.listProjectsForUser(req.user.sub, { teamId });
+  res.json({
+    projects: rows.map((p) => ({ ...serializeProject(p), teams: serializeTeams(p) })),
+  });
 });
 
 export const create = asyncHandler(async (req, res) => {
@@ -46,7 +53,7 @@ export const create = asyncHandler(async (req, res) => {
 
 export const getOne = asyncHandler(async (req, res) => {
   const project = await projectsService.getProjectByIdForUser(req.params.id, req.user.sub);
-  res.json({ project: serializeProject(project) });
+  res.json({ project: { ...serializeProject(project), teams: serializeTeams(project) } });
 });
 
 export const update = asyncHandler(async (req, res) => {

@@ -7,6 +7,7 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
   visibility: visibility.optional(),
+  teamIds: z.array(z.string()).optional(),
 });
 
 export const updateProjectSchema = z.object({

@@ -24,6 +24,12 @@ import exportRoutes from "./modules/export/export.routes.js";
 import importRoutes from "./modules/import/import.routes.js";
 import invitationsRoutes from "./modules/invitations/invitations.routes.js";
 import reportRoutes from "./modules/report/report.routes.js";
+import permissionsRoutes from "./modules/permissions/permissions.routes.js";
+import adminRoutes from "./modules/admin/admin.routes.js";
+import teamsRoutes from "./modules/teams/teams.routes.js";
+import searchRoutes from "./modules/search/search.routes.js";
+import templatesRoutes from "./modules/templates/templates.routes.js";
+import publicRoutes from "./modules/public/public.routes.js";
 
 const app = express();
 
@@ -32,14 +38,12 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-// Log all requests at info level.
-app.use((req, res, next)=>{
-  console.log("Request received at", new Date().toISOString());
-  console.log("Method:", req.method);
-  console.log("URL:", req.url);
-
-  next();
-})
+if (!config.isProd) {
+  app.use((req, _res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+}
 app.use(
   cors({
     origin: config.corsOrigin,
@@ -76,13 +80,26 @@ app.use(
   }),
 );
 
-app.use("/api/auth", authRoutes);
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many auth attempts, try again later" },
+});
+app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/teams", teamsRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/templates", templatesRoutes);
+app.use("/api/public", publicRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/invitations", invitationsRoutes);
 /* Portfolio at /api/report/portfolio — avoid mounting a router on bare /api. */
 app.use("/api/report", reportRoutes);
 
 app.use("/api/projects/:projectId/members", membersRoutes);
+app.use("/api/projects/:projectId/permissions", permissionsRoutes);
 app.use("/api/projects/:projectId/erd", erdRoutes);
 app.use("/api/projects/:projectId/api", apiDocsRoutes);
 app.use("/api/projects/:projectId/comments", commentsRoutes);
@@ -106,8 +123,10 @@ const io = new Server(server, {
 registerSockets(io);
 attachSocketServer(io);
 
-server.listen(config.port, () => {
-  console.log(`DBForge API listening on http://localhost:${config.port}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  server.listen(config.port, () => {
+    console.log(`DBForge API listening on http://localhost:${config.port}`);
+  });
+}
 
 export { app, server, io };
