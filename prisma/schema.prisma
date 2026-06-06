@@ -233,6 +233,7 @@ model ProjectDbProfile {
   id           String   @id @default(cuid())
   projectId    String   @map("project_id")
   name         String   @db.VarChar(120)
+  environment  String   @default("development") @db.VarChar(30)
   dialect      String   @db.VarChar(20)
   host         String   @db.VarChar(255)
   port         Int      @default(3306)
