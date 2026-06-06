@@ -249,8 +249,9 @@ model ProjectDbProfile {
   createdBy     User                  @relation("DbProfileCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   driftSchedule ProjectDriftSchedule?
 
-  @@unique([projectId, name])
+  @@unique([projectId, name, environment])
   @@index([projectId])
+  @@index([projectId, environment])
   @@map("project_db_profiles")
 }
 

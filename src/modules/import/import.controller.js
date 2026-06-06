@@ -154,7 +154,9 @@ export const getDriftMigrationPackage = asyncHandler(async (req, res) => {
 });
 
 export const listDbProfiles = asyncHandler(async (req, res) => {
-  const profiles = await dbProfilesService.listDbProfiles(req.params.projectId);
+  const profiles = await dbProfilesService.listDbProfiles(req.params.projectId, {
+    environment: req.query.environment,
+  });
   res.json({ profiles });
 });
 

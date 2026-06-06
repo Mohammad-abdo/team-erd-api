@@ -8,7 +8,16 @@ export async function getDriftSchedule(projectId) {
   const row = await prisma.projectDriftSchedule.findUnique({
     where: { projectId },
     include: {
-      profile: { select: { id: true, name: true, dialect: true, database: true, host: true } },
+      profile: {
+        select: {
+          id: true,
+          name: true,
+          environment: true,
+          dialect: true,
+          database: true,
+          host: true,
+        },
+      },
     },
   });
   if (!row) return null;
@@ -45,7 +54,16 @@ export async function upsertDriftSchedule(projectId, userId, input) {
       utcHour: input.utcHour ?? 6,
     },
     include: {
-      profile: { select: { id: true, name: true, dialect: true, database: true, host: true } },
+      profile: {
+        select: {
+          id: true,
+          name: true,
+          environment: true,
+          dialect: true,
+          database: true,
+          host: true,
+        },
+      },
     },
   });
 

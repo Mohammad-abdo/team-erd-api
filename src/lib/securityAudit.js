@@ -8,6 +8,7 @@ export function sanitizeConnectionMeta(connection = {}, extras = {}) {
     database: connection.database ?? null,
     schema: connection.schema ?? connection.schemaName ?? null,
     profileId: extras.profileId ?? connection.profileId ?? null,
+    environment: extras.environment ?? connection.environment ?? null,
   };
 }
 

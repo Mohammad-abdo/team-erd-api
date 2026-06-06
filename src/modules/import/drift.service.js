@@ -10,6 +10,7 @@ import { saveDriftReport, getLatestDriftReport, listDriftReports } from "./drift
 export async function checkDrift(projectId, userId, dialect, connection, options = {}) {
   let resolvedDialect = dialect;
   let conn = connection;
+  let profile = null;
 
   const profileId = connection?.profileId ?? null;
 
@@ -17,6 +18,7 @@ export async function checkDrift(projectId, userId, dialect, connection, options
     const resolved = await resolveConnection(projectId, connection);
     resolvedDialect = resolved.dialect;
     conn = resolved.connection;
+    profile = resolved.profile;
   }
 
   if (!conn) {
@@ -49,7 +51,7 @@ export async function checkDrift(projectId, userId, dialect, connection, options
     projectId,
     operation: "drift_check",
     dialect: resolvedDialect,
-    connection: conn,
+    connection: { ...conn, environment: profile?.environment ?? null },
     profileId,
     result: {
       inSync: Boolean(report.summary?.inSync),

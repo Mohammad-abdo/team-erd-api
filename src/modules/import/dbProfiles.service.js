@@ -1,11 +1,16 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { encryptSecret, decryptSecret } from "../../lib/dbProfileCrypto.js";
+import {
+  environmentSortKey,
+  normalizeDbProfileEnvironment,
+} from "../../lib/dbProfileEnvironments.js";
 
 function toPublicProfile(row) {
   return {
     id: row.id,
     name: row.name,
+    environment: row.environment ?? "development",
     dialect: row.dialect,
     host: row.host,
     port: row.port,
@@ -29,12 +34,24 @@ export function connectionFromProfile(row) {
   };
 }
 
-export async function listDbProfiles(projectId) {
+export async function listDbProfiles(projectId, options = {}) {
+  const where = { projectId };
+  if (options.environment) {
+    where.environment = normalizeDbProfileEnvironment(options.environment);
+  }
+
   const rows = await prisma.projectDbProfile.findMany({
-    where: { projectId },
-    orderBy: { name: "asc" },
+    where,
+    orderBy: [{ environment: "asc" }, { name: "asc" }],
   });
-  return rows.map(toPublicProfile);
+
+  return rows
+    .map(toPublicProfile)
+    .sort(
+      (a, b) =>
+        environmentSortKey(a.environment) - environmentSortKey(b.environment)
+        || a.name.localeCompare(b.name),
+    );
 }
 
 export async function getDbProfile(projectId, profileId) {
@@ -70,10 +87,13 @@ export async function createDbProfile(projectId, userId, input) {
     throw new HttpError(400, "Password is required when saving a profile");
   }
 
+  const environment = normalizeDbProfileEnvironment(input.environment);
+
   const row = await prisma.projectDbProfile.create({
     data: {
       projectId,
       name: input.name.trim(),
+      environment,
       dialect: input.dialect,
       host: input.host.trim(),
       port: input.port ?? (input.dialect === "postgres" ? 5432 : 3306),
@@ -98,6 +118,9 @@ export async function updateDbProfile(projectId, profileId, input) {
     where: { id: profileId },
     data: {
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.environment !== undefined
+        ? { environment: normalizeDbProfileEnvironment(input.environment) }
+        : {}),
       ...(input.dialect !== undefined ? { dialect: input.dialect } : {}),
       ...(input.host !== undefined ? { host: input.host.trim() } : {}),
       ...(input.port !== undefined ? { port: input.port } : {}),

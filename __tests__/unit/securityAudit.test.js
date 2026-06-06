@@ -11,7 +11,7 @@ describe("sanitizeConnectionMeta", () => {
         password: "secret",
         database: "dbforge",
       },
-      { profileId: "prof1" },
+      { profileId: "prof1", environment: "staging" },
     );
 
     expect(meta).toEqual({
@@ -21,6 +21,7 @@ describe("sanitizeConnectionMeta", () => {
       database: "dbforge",
       schema: null,
       profileId: "prof1",
+      environment: "staging",
     });
     expect(meta.password).toBeUndefined();
   });
