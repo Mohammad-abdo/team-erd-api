@@ -11,6 +11,8 @@ describe("buildPrismaMigrationPackage", () => {
       { folderStamp: "20260606120000" },
     );
     expect(pkg.folderName).toBe("20260606120000_drift_sync");
+    expect(pkg.files).toHaveLength(2);
+    expect(pkg.files[0].path).toContain("migration.sql");
     expect(pkg.migrationSql).toContain("CREATE TABLE t1");
     expect(pkg.migrationSql).toContain("prisma/migrations");
     expect(pkg.readme).toContain("migrate deploy");

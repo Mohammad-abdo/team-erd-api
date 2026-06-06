@@ -11,10 +11,10 @@ import { rotateRefreshToken, signAccessToken } from "../../lib/tokens.js";
 import { HttpError } from "../../utils/httpError.js";
 import {
   createOAuthState,
-  googleAuthorizeUrl,
-  isGoogleOAuthEnabled,
+  getAuthorizeUrl,
+  isOAuthProviderEnabled,
   listOAuthProviders,
-  loginWithGoogleCode,
+  loginWithOAuthCode,
   verifyOAuthState,
 } from "./oauth.service.js";
 
@@ -74,17 +74,19 @@ export const oauthProviders = asyncHandler(async (_req, res) => {
   res.json(listOAuthProviders());
 });
 
-export const googleOAuthStart = asyncHandler(async (_req, res) => {
-  if (!isGoogleOAuthEnabled()) {
-    throw new HttpError(503, "Google sign-in is not configured");
+export const oauthStart = asyncHandler(async (req, res) => {
+  const provider = String(req.params.provider ?? "");
+  if (!isOAuthProviderEnabled(provider)) {
+    throw new HttpError(503, `${provider} sign-in is not configured`);
   }
-  const state = createOAuthState();
-  res.redirect(googleAuthorizeUrl(state));
+  const state = createOAuthState(provider);
+  res.redirect(getAuthorizeUrl(provider, state));
 });
 
-export const googleOAuthCallback = asyncHandler(async (req, res) => {
-  if (!isGoogleOAuthEnabled()) {
-    throw new HttpError(503, "Google sign-in is not configured");
+export const oauthCallback = asyncHandler(async (req, res) => {
+  const provider = String(req.params.provider ?? "");
+  if (!isOAuthProviderEnabled(provider)) {
+    throw new HttpError(503, `${provider} sign-in is not configured`);
   }
 
   const { code, state, error } = req.query;
@@ -95,8 +97,8 @@ export const googleOAuthCallback = asyncHandler(async (req, res) => {
     throw new HttpError(400, "Missing OAuth code or state");
   }
 
-  verifyOAuthState(String(state));
-  const session = await loginWithGoogleCode(String(code));
+  verifyOAuthState(String(state), provider);
+  const session = await loginWithOAuthCode(provider, String(code));
 
   const params = new URLSearchParams({
     accessToken: session.accessToken,

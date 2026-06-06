@@ -22,7 +22,7 @@ r.post("/reset-password", validate(resetPasswordSchema), authController.resetPas
 r.post("/logout", requireAuth, validate(logoutSchema), authController.logout);
 
 r.get("/oauth/providers", authController.oauthProviders);
-r.get("/oauth/google", authController.googleOAuthStart);
-r.get("/oauth/google/callback", authController.googleOAuthCallback);
+r.get("/oauth/:provider", authController.oauthStart);
+r.get("/oauth/:provider/callback", authController.oauthCallback);
 
 export default r;

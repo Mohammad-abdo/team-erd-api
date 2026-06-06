@@ -103,6 +103,10 @@ export const config = {
   storage: {
     commentAttachmentsDir: process.env.COMMENT_ATTACHMENTS_DIR?.trim() || null,
   },
+  redis: {
+    url: process.env.REDIS_URL?.trim() || null,
+    rateLimitPrefix: process.env.REDIS_RATE_LIMIT_PREFIX?.trim() || "dbforge:rl:",
+  },
   oauth: {
     google: {
       clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || null,
@@ -110,6 +114,21 @@ export const config = {
       callbackUrl:
         process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim()
         || `${process.env.API_PUBLIC_URL?.trim() || "http://localhost:4000"}/api/auth/oauth/google/callback`,
+    },
+    github: {
+      clientId: process.env.GITHUB_OAUTH_CLIENT_ID?.trim() || null,
+      clientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET?.trim() || null,
+      callbackUrl:
+        process.env.GITHUB_OAUTH_CALLBACK_URL?.trim()
+        || `${process.env.API_PUBLIC_URL?.trim() || "http://localhost:4000"}/api/auth/oauth/github/callback`,
+    },
+    microsoft: {
+      clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID?.trim() || null,
+      clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET?.trim() || null,
+      tenant: process.env.MICROSOFT_OAUTH_TENANT?.trim() || "common",
+      callbackUrl:
+        process.env.MICROSOFT_OAUTH_CALLBACK_URL?.trim()
+        || `${process.env.API_PUBLIC_URL?.trim() || "http://localhost:4000"}/api/auth/oauth/microsoft/callback`,
     },
   },
 };

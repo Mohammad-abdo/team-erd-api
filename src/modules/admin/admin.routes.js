@@ -18,6 +18,7 @@ const r = Router();
 
 r.use(requireAuth, requirePlatformAdmin);
 
+r.get("/security", adminController.securityOverview);
 r.get("/settings", adminController.getSettings);
 r.patch("/settings", validate(updatePlatformBrandingSchema), adminController.updateSettings);
 r.get("/stats", adminController.stats);

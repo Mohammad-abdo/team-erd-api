@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import { Server } from "socket.io";
 
 import { config } from "./config/index.js";
+import { initRateLimitStore } from "./lib/rateLimitStore.js";
 import { prisma } from "./lib/prisma.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { registerSockets } from "./sockets/index.js";
@@ -148,10 +149,12 @@ registerSockets(io);
 attachSocketServer(io);
 
 if (process.env.NODE_ENV !== "test") {
-  server.listen(config.port, () => {
-    console.log(`DBForge API listening on http://localhost:${config.port}`);
-    startWeeklyDigestCron();
-    startDriftCheckCron();
+  initRateLimitStore().then(() => {
+    server.listen(config.port, () => {
+      console.log(`DBForge API listening on http://localhost:${config.port}`);
+      startWeeklyDigestCron();
+      startDriftCheckCron();
+    });
   });
 }
 

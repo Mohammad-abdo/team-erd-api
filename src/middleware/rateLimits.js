@@ -1,9 +1,11 @@
 import rateLimit from "express-rate-limit";
 import { config } from "../config/index.js";
+import { getRateLimitBackend, getRateLimitStore } from "../lib/rateLimitStore.js";
 
 const skipInDev = () => !config.isProd;
 
 function createLimiter({ max, windowMs = 15 * 60 * 1000, message, keyGenerator }) {
+  const store = getRateLimitStore();
   return rateLimit({
     windowMs,
     max,
@@ -12,6 +14,7 @@ function createLimiter({ max, windowMs = 15 * 60 * 1000, message, keyGenerator }
     message: message ?? { error: "Too many requests — try again later" },
     skip: skipInDev,
     keyGenerator: keyGenerator ?? ((req) => req.ip),
+    ...(store ? { store } : {}),
   });
 }
 

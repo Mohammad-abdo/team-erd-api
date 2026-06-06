@@ -2,6 +2,12 @@ import { config } from "../../config/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { isEmailConfigured, sendEmail } from "../../lib/email.js";
 import { getRateLimitCatalog } from "../../middleware/rateLimits.js";
+import { listOAuthProviders } from "../auth/oauth.service.js";
+import {
+  getRateLimitBackend,
+  isRedisConfigured,
+  isRedisConnected,
+} from "../../lib/rateLimitStore.js";
 import * as adminService from "./admin.service.js";
 import * as settingsService from "../settings/settings.service.js";
 
@@ -83,7 +89,24 @@ export const rateLimits = asyncHandler(async (_req, res) => {
   res.json({
     enforced: config.isProd,
     environment: config.nodeEnv,
+    backend: getRateLimitBackend(),
     limits: getRateLimitCatalog(),
+  });
+});
+
+export const securityOverview = asyncHandler(async (_req, res) => {
+  res.json({
+    oauth: listOAuthProviders(),
+    rateLimits: {
+      enforced: config.isProd,
+      environment: config.nodeEnv,
+      backend: getRateLimitBackend(),
+      limits: getRateLimitCatalog(),
+    },
+    redis: {
+      configured: isRedisConfigured(),
+      connected: isRedisConnected(),
+    },
   });
 });
 
