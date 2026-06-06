@@ -3,6 +3,17 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { isEmailConfigured, sendEmail } from "../../lib/email.js";
 import { getRateLimitCatalog } from "../../middleware/rateLimits.js";
 import * as adminService from "./admin.service.js";
+import * as settingsService from "../settings/settings.service.js";
+
+export const getSettings = asyncHandler(async (_req, res) => {
+  const settings = await settingsService.getPlatformSettings();
+  res.json(settings);
+});
+
+export const updateSettings = asyncHandler(async (req, res) => {
+  const branding = await settingsService.updatePlatformBranding(req.user.sub, req.body);
+  res.json({ branding });
+});
 
 export const stats = asyncHandler(async (_req, res) => {
   const data = await adminService.getPlatformStats();

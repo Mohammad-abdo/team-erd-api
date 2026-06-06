@@ -45,3 +45,5 @@ export const updateClientAccessSchema = clientAccessSchema;
 export const testEmailSchema = z.object({
   to: z.string().email().max(255),
 });
+
+export { updatePlatformBrandingSchema } from "../settings/settings.schemas.js";

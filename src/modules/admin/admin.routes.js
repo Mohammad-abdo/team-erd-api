@@ -8,6 +8,7 @@ import {
   createUserSchema,
   testEmailSchema,
   updateClientAccessSchema,
+  updatePlatformBrandingSchema,
   updateUserSchema,
 } from "./admin.schemas.js";
 import { adminBackupLimiter } from "../../middleware/rateLimits.js";
@@ -17,6 +18,8 @@ const r = Router();
 
 r.use(requireAuth, requirePlatformAdmin);
 
+r.get("/settings", adminController.getSettings);
+r.patch("/settings", validate(updatePlatformBrandingSchema), adminController.updateSettings);
 r.get("/stats", adminController.stats);
 r.get("/users", adminController.listUsers);
 r.post("/users", validate(createUserSchema), adminController.createUser);

@@ -145,6 +145,7 @@ model User {
   driftReportsChecked ProjectDriftReport[] @relation("DriftReportCheckedBy")
   dbProfilesCreated   ProjectDbProfile[]   @relation("DbProfileCreatedBy")
   driftSchedulesCreated ProjectDriftSchedule[] @relation("DriftScheduleCreatedBy")
+  platformSettingsUpdated PlatformSetting[] @relation("PlatformSettingsUpdatedBy")
 
   @@map("users")
 }
@@ -882,4 +883,17 @@ model DailyReport {
   @@index([teamId, reportDate])
   @@index([projectId, reportDate])
   @@map("daily_reports")
+}
+
+model PlatformSetting {
+  id               String   @id @default("default")
+  logoUrl          String?  @map("logo_url") @db.VarChar(500)
+  workspaceTitle   String?  @map("workspace_title") @db.VarChar(120)
+  workspaceTagline String?  @map("workspace_tagline") @db.VarChar(200)
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  updatedById      String?  @map("updated_by_id")
+
+  updatedBy User? @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("platform_settings")
 }
