@@ -13,6 +13,7 @@ import { registerSockets } from "./sockets/index.js";
 import { attachSocketServer } from "./sockets/emit.js";
 import { startWeeklyDigestCron } from "./jobs/weeklyDigestCron.js";
 import { startDriftCheckCron } from "./jobs/driftCheckCron.js";
+import { startScheduledReportCron } from "./jobs/scheduledReportCron.js";
 
 import authRoutes from "./modules/auth/auth.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
@@ -154,6 +155,7 @@ if (process.env.NODE_ENV !== "test") {
       console.log(`DBForge API listening on http://localhost:${config.port}`);
       startWeeklyDigestCron();
       startDriftCheckCron();
+      startScheduledReportCron();
     });
   });
 }

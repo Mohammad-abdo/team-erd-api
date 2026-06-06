@@ -11,14 +11,33 @@ import {
   updatePlatformBrandingSchema,
   updateUserSchema,
 } from "./admin.schemas.js";
+import {
+  createReportDefinitionSchema,
+  createScheduledReportSchema,
+  updateReportDefinitionSchema,
+  updateScheduledReportSchema,
+} from "../analytics/analytics.schemas.js";
 import { adminBackupLimiter } from "../../middleware/rateLimits.js";
 import * as adminController from "./admin.controller.js";
+import * as analyticsController from "../analytics/analytics.controller.js";
 
 const r = Router();
 
 r.use(requireAuth, requirePlatformAdmin);
 
 r.get("/security", adminController.securityOverview);
+r.get("/analytics/usage", analyticsController.usage);
+r.get("/analytics/metrics", analyticsController.metricCatalog);
+r.get("/analytics/report-definitions", analyticsController.listDefinitions);
+r.post("/analytics/report-definitions", validate(createReportDefinitionSchema), analyticsController.createDefinition);
+r.patch("/analytics/report-definitions/:definitionId", validate(updateReportDefinitionSchema), analyticsController.updateDefinition);
+r.delete("/analytics/report-definitions/:definitionId", analyticsController.deleteDefinition);
+r.post("/analytics/report-definitions/:definitionId/run", analyticsController.runDefinition);
+r.get("/analytics/scheduled-reports", analyticsController.listSchedules);
+r.post("/analytics/scheduled-reports", validate(createScheduledReportSchema), analyticsController.createSchedule);
+r.patch("/analytics/scheduled-reports/:scheduleId", validate(updateScheduledReportSchema), analyticsController.updateSchedule);
+r.delete("/analytics/scheduled-reports/:scheduleId", analyticsController.deleteSchedule);
+r.post("/analytics/scheduled-reports/:scheduleId/run", analyticsController.runScheduleNow);
 r.get("/settings", adminController.getSettings);
 r.patch("/settings", validate(updatePlatformBrandingSchema), adminController.updateSettings);
 r.get("/stats", adminController.stats);

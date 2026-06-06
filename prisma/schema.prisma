@@ -147,6 +147,8 @@ model User {
   dbProfilesCreated   ProjectDbProfile[]   @relation("DbProfileCreatedBy")
   driftSchedulesCreated ProjectDriftSchedule[] @relation("DriftScheduleCreatedBy")
   platformSettingsUpdated PlatformSetting[] @relation("PlatformSettingsUpdatedBy")
+  customReportsCreated    CustomReportDefinition[] @relation("CustomReportCreatedBy")
+  scheduledReportsCreated ScheduledReport[]        @relation("ScheduledReportCreatedBy")
 
   @@map("users")
 }
@@ -223,6 +225,7 @@ model Project {
   driftReports    ProjectDriftReport[]
   dbProfiles      ProjectDbProfile[]
   driftSchedule   ProjectDriftSchedule?
+  customReports   CustomReportDefinition[]
 
   @@index([leaderId])
   @@index([healthStage])
@@ -884,6 +887,80 @@ model DailyReport {
   @@index([teamId, reportDate])
   @@index([projectId, reportDate])
   @@map("daily_reports")
+}
+
+enum CustomReportScope {
+  PLATFORM
+  PROJECT
+}
+
+enum CustomReportFormat {
+  JSON
+  MARKDOWN
+}
+
+enum ScheduledReportCadence {
+  DAILY
+  WEEKLY
+}
+
+model CustomReportDefinition {
+  id          String             @id @default(cuid())
+  name        String             @db.VarChar(200)
+  description String?            @db.Text
+  scope       CustomReportScope  @default(PLATFORM)
+  projectId   String?            @map("project_id")
+  metrics     Json
+  filters     Json?
+  format      CustomReportFormat @default(MARKDOWN)
+  createdById String             @map("created_by")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  project   Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("CustomReportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  schedules ScheduledReport[]
+
+  @@index([createdById])
+  @@index([projectId])
+  @@map("custom_report_definitions")
+}
+
+model ScheduledReport {
+  id              String                 @id @default(cuid())
+  definitionId    String                 @map("definition_id")
+  enabled         Boolean                @default(true)
+  cadence         ScheduledReportCadence @default(WEEKLY)
+  utcDay          Int                    @default(1) @map("utc_day")
+  utcHour         Int                    @default(8) @map("utc_hour")
+  recipientEmails Json                   @map("recipient_emails")
+  lastRunAt       DateTime?              @map("last_run_at")
+  lastRunStatus   String?                @map("last_run_status") @db.VarChar(30)
+  createdById     String                 @map("created_by")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  definition CustomReportDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  createdBy  User                   @relation("ScheduledReportCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  runs       ScheduledReportRun[]
+
+  @@index([definitionId])
+  @@index([enabled])
+  @@map("scheduled_reports")
+}
+
+model ScheduledReportRun {
+  id                String   @id @default(cuid())
+  scheduledReportId String   @map("scheduled_report_id")
+  status            String   @db.VarChar(30)
+  summary           Json?
+  error             String?  @db.Text
+  ranAt             DateTime @default(now()) @map("ran_at")
+
+  scheduledReport ScheduledReport @relation(fields: [scheduledReportId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledReportId, ranAt])
+  @@map("scheduled_report_runs")
 }
 
 model PlatformSetting {

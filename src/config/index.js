@@ -75,6 +75,7 @@ export const config = {
   weeklyDigestCronUtcHour: Number(process.env.WEEKLY_DIGEST_CRON_UTC_HOUR ?? 8),
   weeklyDigestCronUtcDay: Number(process.env.WEEKLY_DIGEST_CRON_UTC_DAY ?? 1),
   driftCheckCron: parseBool(process.env.DRIFT_CHECK_CRON, false),
+  scheduledReportCron: parseBool(process.env.SCHEDULED_REPORT_CRON, false),
   dbProfileEncryptionKey: dbProfileEncryptionKey(),
   sentryDsn: process.env.SENTRY_DSN?.trim() || null,
   rateLimits: {
