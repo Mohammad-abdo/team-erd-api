@@ -18,3 +18,18 @@ export const patchMe = asyncHandler(async (req, res) => {
   const user = await usersService.updateUserProfile(req.user.sub, req.body);
   res.json({ user });
 });
+
+export const uploadAvatar = asyncHandler(async (req, res) => {
+  const user = await usersService.uploadUserAvatar(req.user.sub, req.file, req);
+  res.json({ user });
+});
+
+export const serveAvatar = asyncHandler(async (req, res) => {
+  const { abs, mime } = usersService.getUserAvatarFile(
+    req.params.userId,
+    req.params.filename,
+  );
+  res.setHeader("Content-Type", mime);
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.sendFile(abs);
+});

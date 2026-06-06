@@ -2,14 +2,18 @@ import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { patchMeSchema } from "./users.schemas.js";
+import { avatarUploadHandler } from "../../lib/avatarUpload.js";
 import * as usersController from "./users.controller.js";
 
 const r = Router();
+
+r.get("/avatars/:userId/:filename", usersController.serveAvatar);
 
 r.use(requireAuth);
 
 r.get("/directory", usersController.directory);
 r.get("/me", usersController.me);
 r.patch("/me", validate(patchMeSchema), usersController.patchMe);
+r.post("/me/avatar", avatarUploadHandler, usersController.uploadAvatar);
 
 export default r;
