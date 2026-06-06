@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { parseApiBasePath } from "../lib/apiPaths.js";
 
 const required = (key, fallback) => {
   const v = process.env[key] ?? fallback;
@@ -63,6 +64,8 @@ export const config = {
   port: Number(process.env.PORT ?? 4000),
   databaseUrl: required("DATABASE_URL", undefined),
   appUrl: process.env.APP_URL ?? "http://localhost:5173",
+  apiPublicUrl: process.env.API_PUBLIC_URL?.trim() || null,
+  apiBasePath: parseApiBasePath(),
   allowPublicRegistration: parseBool(process.env.ALLOW_PUBLIC_REGISTRATION, !isProd),
   jwt: {
     accessSecret: jwtSecret("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),

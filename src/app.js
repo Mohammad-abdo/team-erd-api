@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import { Server } from "socket.io";
 
 import { config } from "./config/index.js";
+import { withApiBasePath } from "./lib/apiPaths.js";
 import { initRateLimitStore } from "./lib/rateLimitStore.js";
 import { prisma } from "./lib/prisma.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
@@ -63,22 +64,56 @@ app.use(
 
 /** Public health checks — mounted before JSON body parser and rate limit (load balancers / uptime monitors). */
 function healthLiveness(_req, res) {
-  res.json({ ok: true, service: "dbforge-api" });
+  res.json({
+    ok: true,
+    service: "dbforge-api",
+    basePath: config.apiBasePath || null,
+  });
 }
 
 async function healthReadiness(_req, res) {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok: true, db: true });
+    res.json({
+      ok: true,
+      db: true,
+      basePath: config.apiBasePath || null,
+    });
   } catch {
-    res.status(503).json({ ok: false, db: false });
+    res.status(503).json({ ok: false, db: false, basePath: config.apiBasePath || null });
   }
 }
 
-app.get("/health", healthLiveness);
-app.get("/api/health", healthLiveness);
-app.get("/ready", healthReadiness);
-app.get("/api/ready", healthReadiness);
+function route(path) {
+  return withApiBasePath(config.apiBasePath, path);
+}
+
+/** Register a route at the default path and under API_BASE_PATH when configured. */
+function mount(path, ...handlers) {
+  app.use(path, ...handlers);
+  const prefixed = route(path);
+  if (prefixed !== path) {
+    app.use(prefixed, ...handlers);
+  }
+}
+
+function registerHealthRoutes() {
+  const checks = [
+    ["/health", healthLiveness],
+    ["/api/health", healthLiveness],
+    ["/ready", healthReadiness],
+    ["/api/ready", healthReadiness],
+  ];
+  for (const [path, handler] of checks) {
+    app.get(path, handler);
+    const prefixed = route(path);
+    if (prefixed !== path) {
+      app.get(prefixed, handler);
+    }
+  }
+}
+
+registerHealthRoutes();
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -102,42 +137,45 @@ const authLimiter = rateLimit({
   message: { error: "Too many auth attempts, try again later" },
   skip: skipRateLimitInDev,
 });
-app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/teams", teamsRoutes);
-app.use("/api/search", searchRoutes);
-app.use("/api/templates", templatesRoutes);
-app.use("/api/public", publicRoutes);
-app.use("/api/users", usersRoutes);
-app.use("/api/invitations", invitationsRoutes);
+mount("/api/auth", authLimiter, authRoutes);
+mount("/api/admin", adminRoutes);
+mount("/api/teams", teamsRoutes);
+mount("/api/search", searchRoutes);
+mount("/api/templates", templatesRoutes);
+mount("/api/public", publicRoutes);
+mount("/api/users", usersRoutes);
+mount("/api/invitations", invitationsRoutes);
 /* Portfolio at /api/report/portfolio — avoid mounting a router on bare /api. */
-app.use("/api/report", reportRoutes);
+mount("/api/report", reportRoutes);
 
-app.use("/api/projects/:projectId/members", projectMembersRoutes);
-app.use("/api/projects/:projectId/permissions", permissionsRoutes);
-app.use("/api/projects/:projectId/erd", erdRoutes);
-app.use("/api/projects/:projectId/api", apiDocsRoutes);
-app.use("/api/projects/:projectId/comments", commentsRoutes);
-app.use("/api/projects/:projectId/activity", activityRoutes);
-app.use("/api/projects/:projectId/export", exportRoutes);
-app.use("/api/projects/:projectId/import", importRoutes);
-app.use("/api/projects/:projectId/ai", aiRoutes);
-app.use("/api/projects/:projectId/webhooks", webhooksRoutes);
-app.use("/api/projects/:projectId/tasks", tasksRoutes);
+mount("/api/projects/:projectId/members", projectMembersRoutes);
+mount("/api/projects/:projectId/permissions", permissionsRoutes);
+mount("/api/projects/:projectId/erd", erdRoutes);
+mount("/api/projects/:projectId/api", apiDocsRoutes);
+mount("/api/projects/:projectId/comments", commentsRoutes);
+mount("/api/projects/:projectId/activity", activityRoutes);
+mount("/api/projects/:projectId/export", exportRoutes);
+mount("/api/projects/:projectId/import", importRoutes);
+mount("/api/projects/:projectId/ai", aiRoutes);
+mount("/api/projects/:projectId/webhooks", webhooksRoutes);
+mount("/api/projects/:projectId/tasks", tasksRoutes);
 
-app.use("/api/projects", projectsRoutes);
+mount("/api/projects", projectsRoutes);
 
-app.use("/api/notifications", notificationsRoutes);
-app.use("/api/tasks", tasksGlobalRoutes);
-app.use("/api/daily-tasks", dailyTasksGlobalRoutes);
-app.use("/api/members", membersRoutes);
+mount("/api/notifications", notificationsRoutes);
+mount("/api/tasks", tasksGlobalRoutes);
+mount("/api/daily-tasks", dailyTasksGlobalRoutes);
+mount("/api/members", membersRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 const server = http.createServer(app);
 
+const socketPath = config.apiBasePath ? `${config.apiBasePath}/socket.io` : "/socket.io";
+
 const io = new Server(server, {
+  path: socketPath,
   cors: {
     origin: config.corsOrigin.length === 1 ? config.corsOrigin[0] : config.corsOrigin,
     methods: ["GET", "POST"],
@@ -152,7 +190,8 @@ attachSocketServer(io);
 if (process.env.NODE_ENV !== "test") {
   initRateLimitStore().then(() => {
     server.listen(config.port, () => {
-      console.log(`DBForge API listening on http://localhost:${config.port}`);
+      const base = config.apiBasePath ? ` (base path ${config.apiBasePath})` : "";
+      console.log(`DBForge API listening on http://localhost:${config.port}${base}`);
       startWeeklyDigestCron();
       startDriftCheckCron();
       startScheduledReportCron();
