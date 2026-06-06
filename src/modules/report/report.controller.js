@@ -2,6 +2,7 @@ import {
   generateProjectReport,
   listPortfolioReportSummaries,
 } from './report.service.js'
+import { listPortfolioDriftSummaries } from './driftPortfolio.service.js'
 import { asyncHandler } from '../../utils/asyncHandler.js'
 import { sanitizeReportForClient } from '../../lib/clientPortal.js'
 import { z } from 'zod'
@@ -14,6 +15,22 @@ export const getPortfolioReport = asyncHandler(async (req, res) => {
   const projects = await listPortfolioReportSummaries(req.user.sub)
   res.json({
     projects,
+    generatedAt: new Date().toISOString(),
+  })
+})
+
+export const getPortfolioDrift = asyncHandler(async (req, res) => {
+  const projects = await listPortfolioDriftSummaries(req.user.sub)
+  const totals = {
+    projects: projects.length,
+    neverChecked: projects.filter((p) => p.status === 'never_checked').length,
+    inSync: projects.filter((p) => p.status === 'in_sync').length,
+    drift: projects.filter((p) => p.status === 'drift').length,
+    scheduled: projects.filter((p) => p.schedule?.enabled).length,
+  }
+  res.json({
+    projects,
+    totals,
     generatedAt: new Date().toISOString(),
   })
 })

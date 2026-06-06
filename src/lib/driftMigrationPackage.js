@@ -36,12 +36,19 @@ export function buildPrismaMigrationPackage(report, options = {}) {
     "Always test on staging first.",
   ].join("\n");
 
+  const migrationSql = `${header}${sql}\n`;
+  const relativePath = `prisma/migrations/${folderName}/migration.sql`;
+
   return {
     folderName,
     dialect,
     statementCount: report.migration.statementCount ?? 0,
-    migrationSql: `${header}${sql}\n`,
+    migrationSql,
     readme,
-    relativePath: `prisma/migrations/${folderName}/migration.sql`,
+    relativePath,
+    files: [
+      { path: relativePath, content: migrationSql },
+      { path: `prisma/migrations/${folderName}/README.md`, content: `${readme}\n` },
+    ],
   };
 }

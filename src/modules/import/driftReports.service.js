@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { HttpError } from "../../utils/httpError.js";
 import { logActivity } from "../activity/activity.service.js";
 import { notifyDriftDetected } from "../notifications/driftNotifications.js";
 
@@ -120,6 +121,19 @@ export async function getLatestDriftReport(projectId) {
       checkedBy: { select: { id: true, name: true, email: true } },
     },
   });
+  return formatDriftReportRow(row);
+}
+
+export async function getDriftReportById(projectId, reportId) {
+  const row = await prisma.projectDriftReport.findFirst({
+    where: { id: reportId, projectId },
+    include: {
+      checkedBy: { select: { id: true, name: true, email: true } },
+    },
+  });
+  if (!row) {
+    throw new HttpError(404, "Drift report not found");
+  }
   return formatDriftReportRow(row);
 }
 

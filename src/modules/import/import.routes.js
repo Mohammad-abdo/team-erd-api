@@ -63,6 +63,7 @@ r.post(
   importController.importPostgresIntrospect,
 );
 r.get("/drift/latest", requireDriftReadAccess, importController.getLatestDrift);
+r.get("/drift/reports/:reportId", requireDriftReadAccess, importController.getDriftReport);
 r.get("/drift/migration-package", requireDriftReadAccess, importController.getDriftMigrationPackage);
 r.get("/drift/history", requireDriftReadAccess, importController.listDriftHistory);
 r.post(

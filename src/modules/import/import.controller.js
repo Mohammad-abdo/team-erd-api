@@ -136,8 +136,20 @@ export const listDriftHistory = asyncHandler(async (req, res) => {
   res.json({ reports });
 });
 
+export const getDriftReport = asyncHandler(async (req, res) => {
+  const report = await driftService.getDriftReportById(
+    req.params.projectId,
+    req.params.reportId,
+  );
+  res.json({ report });
+});
+
 export const getDriftMigrationPackage = asyncHandler(async (req, res) => {
-  const report = await driftService.getLatestDriftReport(req.params.projectId);
+  const reportId = req.query.reportId;
+  const report = reportId
+    ? await driftService.getDriftReportById(req.params.projectId, String(reportId))
+    : await driftService.getLatestDriftReport(req.params.projectId);
+
   if (!report || report.inSync) {
     return res.status(404).json({
       error: report?.inSync
@@ -150,7 +162,7 @@ export const getDriftMigrationPackage = asyncHandler(async (req, res) => {
     meta: report.meta,
     migration: report.migration,
   });
-  res.json({ package: pkg });
+  res.json({ package: pkg, reportId: report.id });
 });
 
 export const listDbProfiles = asyncHandler(async (req, res) => {

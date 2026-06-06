@@ -5,7 +5,12 @@ import { introspectMysqlSchema, introspectPostgresSchema } from "../../lib/sqlIn
 import { buildSnapshotPayload } from "../erd/erdSnapshots.service.js";
 import { resolveConnection } from "./dbProfiles.service.js";
 import { logDbAccessAudit } from "../../lib/securityAudit.js";
-import { saveDriftReport, getLatestDriftReport, listDriftReports } from "./driftReports.service.js";
+import {
+  saveDriftReport,
+  getLatestDriftReport,
+  getDriftReportById,
+  listDriftReports,
+} from "./driftReports.service.js";
 
 export async function checkDrift(projectId, userId, dialect, connection, options = {}) {
   let resolvedDialect = dialect;
@@ -63,4 +68,4 @@ export async function checkDrift(projectId, userId, dialect, connection, options
   return { ...full, savedReportId: saved.id, checkedAt: saved.checkedAt };
 }
 
-export { getLatestDriftReport, listDriftReports };
+export { getLatestDriftReport, getDriftReportById, listDriftReports };
