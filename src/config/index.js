@@ -46,4 +46,8 @@ export const config = {
     pass: process.env.SMTP_PASS?.trim() || null,
     from: process.env.SMTP_FROM?.trim() || "DBForge <noreply@localhost>",
   },
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY?.trim() || null,
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
+  },
 };

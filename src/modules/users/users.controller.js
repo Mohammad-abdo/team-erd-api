@@ -6,6 +6,14 @@ export const me = asyncHandler(async (req, res) => {
   res.json({ user });
 });
 
+export const directory = asyncHandler(async (req, res) => {
+  const users = await usersService.listUserDirectory({
+    q: req.query.q,
+    limit: req.query.limit,
+  });
+  res.json({ users });
+});
+
 export const patchMe = asyncHandler(async (req, res) => {
   const user = await usersService.updateUserProfile(req.user.sub, req.body);
   res.json({ user });

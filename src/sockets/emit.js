@@ -12,6 +12,7 @@ export function attachSocketServer(io) {
  */
 export function emitToProject(projectId, event, payload) {
   ioRef?.to(`project:${projectId}`).emit(event, payload ?? {});
+  dispatchWebhooksForSocket(projectId, event, payload);
 }
 
 /**

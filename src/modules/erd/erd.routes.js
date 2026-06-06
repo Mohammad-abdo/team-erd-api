@@ -16,6 +16,8 @@ import {
   updateRelationSchema,
 } from "./erd.schemas.js";
 import * as erdController from "./erd.controller.js";
+import * as snapshotsController from "./erdSnapshots.controller.js";
+import { createSnapshotSchema } from "./erdSnapshots.schemas.js";
 
 const r = Router({ mergeParams: true });
 
@@ -55,5 +57,11 @@ r.put(
   erdController.updateRelation,
 );
 r.delete("/relations/:relationId", erdDelete, erdController.deleteRelation);
+
+r.get("/snapshots", erdView, snapshotsController.list);
+r.post("/snapshots", erdEdit, validate(createSnapshotSchema), snapshotsController.create);
+r.get("/snapshots/:snapshotId", erdView, snapshotsController.getOne);
+r.post("/snapshots/:snapshotId/restore", erdEdit, snapshotsController.restore);
+r.delete("/snapshots/:snapshotId", erdDelete, snapshotsController.remove);
 
 export default r;

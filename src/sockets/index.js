@@ -52,16 +52,44 @@ export function registerSockets(io) {
         await socket.join(`project:${projectId}`);
 
         const { user } = member;
+        socket.data.userName = user.name;
+        socket.data.userAvatar = user.avatar ?? null;
+
         socket.to(`project:${projectId}`).emit("presence:peer", {
           userId: user.id,
           name: user.name,
           avatar: user.avatar ?? null,
         });
 
-        reply({ ok: true });
+        const socketsInRoom = await io.in(`project:${projectId}`).fetchSockets();
+        const peers = socketsInRoom
+          .filter((s) => s.data.userId && s.data.userId !== user.id)
+          .map((s) => ({
+            userId: s.data.userId,
+            name: s.data.userName ?? "User",
+            avatar: s.data.userAvatar ?? null,
+          }));
+
+        reply({ ok: true, peers });
       } catch {
         reply({ ok: false, error: "server_error" });
       }
+    });
+
+    socket.on("presence:cursor", (projectId, payload) => {
+      if (typeof projectId !== "string" || !payload || typeof payload.x !== "number" || typeof payload.y !== "number") {
+        return;
+      }
+      if (!socket.rooms.has(`project:${projectId}`)) {
+        return;
+      }
+      socket.to(`project:${projectId}`).emit("presence:cursor", {
+        userId: socket.data.userId,
+        name: socket.data.userName ?? "User",
+        avatar: socket.data.userAvatar ?? null,
+        x: payload.x,
+        y: payload.y,
+      });
     });
 
     socket.on("project:leave", (projectId) => {

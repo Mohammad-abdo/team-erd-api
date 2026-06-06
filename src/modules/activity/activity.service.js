@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { refreshProjectHealth } from "../projects/projectHealth.service.js";
 
 /**
  * @param {object} input
@@ -22,4 +23,8 @@ export async function logActivity(input) {
       newValues: input.newValues === undefined ? undefined : input.newValues,
     },
   });
+
+  if (input.projectId) {
+    await refreshProjectHealth(input.projectId);
+  }
 }

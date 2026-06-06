@@ -16,7 +16,7 @@ export async function globalSearch(userId, query) {
             OR: [
               { leaderId: userId },
               { members: { some: { userId } } },
-              { teamProjects: { some: { team: { members: { some: { userId } } } } } } },
+              { teamProjects: { some: { team: { members: { some: { userId } } } } } },
             ],
           },
         ],
@@ -37,7 +37,7 @@ export async function globalSearch(userId, query) {
               OR: [
                 { leaderId: userId },
                 { members: { some: { userId } } },
-                { teamProjects: { some: { team: { members: { some: { userId } } } } } } },
+                { teamProjects: { some: { team: { members: { some: { userId } } } } } },
               ],
             },
       },
@@ -54,7 +54,7 @@ export async function globalSearch(userId, query) {
                 OR: [
                   { leaderId: userId },
                   { members: { some: { userId } } },
-                  { teamProjects: { some: { team: { members: { some: { userId } } } } } } },
+                  { teamProjects: { some: { team: { members: { some: { userId } } } } } },
                 ],
               },
         },

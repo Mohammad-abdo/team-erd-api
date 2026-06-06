@@ -1,0 +1,544 @@
+import { ProjectMemberRole, TaskStatus } from "@prisma/client";
+import { prisma } from "../../lib/prisma.js";
+import { HttpError } from "../../utils/httpError.js";
+import { logActivity } from "../activity/activity.service.js";
+
+const taskInclude = {
+  project: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      leaderId: true,
+      healthStage: true,
+      teamProjects: {
+        include: {
+          team: { select: { id: true, name: true, slug: true, color: true } },
+        },
+      },
+    },
+  },
+  createdBy: { select: { id: true, name: true, avatar: true } },
+  assignees: {
+    include: {
+      user: { select: { id: true, name: true, avatar: true, email: true } },
+    },
+  },
+};
+
+function formatProject(project) {
+  if (!project) return null;
+  const { teamProjects, ...rest } = project;
+  return {
+    ...rest,
+    teams: (teamProjects ?? []).map((tp) => tp.team),
+  };
+}
+
+function formatTask(row) {
+  const project = formatProject(row.project);
+  const isDelayed =
+    row.dueDate &&
+    row.status !== TaskStatus.DONE &&
+    new Date(row.dueDate) < new Date();
+
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    description: row.description,
+    status: row.status,
+    priority: row.priority,
+    progress: row.progress,
+    dueDate: row.dueDate,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    completedAt: row.completedAt,
+    isDelayed,
+    project,
+    teams: project?.teams ?? [],
+    createdBy: row.createdBy,
+    assignees: row.assignees.map((a) => a.user),
+  };
+}
+
+function projectAccessWhere(userId) {
+  return {
+    OR: [
+      { leaderId: userId },
+      { members: { some: { userId } } },
+      { teamProjects: { some: { team: { members: { some: { userId } } } } } },
+    ],
+  };
+}
+
+async function accessibleProjectIds(userId, projectId) {
+  if (projectId) {
+    const p = await prisma.project.findFirst({
+      where: { id: projectId, ...projectAccessWhere(userId) },
+      select: { id: true },
+    });
+    if (!p) throw new HttpError(403, "No access to this project");
+    return [projectId];
+  }
+  const rows = await prisma.project.findMany({
+    where: projectAccessWhere(userId),
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+async function assertAssigneesAreMembers(projectId, assigneeIds) {
+  if (!assigneeIds?.length) return;
+  const members = await prisma.projectMember.findMany({
+    where: { projectId, userId: { in: assigneeIds } },
+    select: { userId: true },
+  });
+  const leader = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { leaderId: true },
+  });
+  const allowed = new Set([...members.map((m) => m.userId), leader?.leaderId].filter(Boolean));
+  const invalid = assigneeIds.filter((id) => !allowed.has(id));
+  if (invalid.length) {
+    throw new HttpError(400, "Assignees must be project members");
+  }
+}
+
+async function notifyAssignees({ task, project, assigneeIds, actorId }) {
+  const targets = assigneeIds.filter((id) => id !== actorId);
+  if (!targets.length) return;
+  await prisma.notification.createMany({
+    data: targets.map((userId) => ({
+      userId,
+      type: "TASK_ASSIGNED",
+      title: `Task assigned: ${task.title}`,
+      body: `${project.name} — ${task.title}`,
+      data: { taskId: task.id, projectId: project.id },
+    })),
+  });
+}
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export async function listTasksForUser(userId, { projectId, assigneeId, status } = {}) {
+  const projectIds = await accessibleProjectIds(userId, projectId);
+  if (!projectIds.length) return [];
+
+  const rows = await prisma.projectTask.findMany({
+    where: {
+      projectId: { in: projectIds },
+      ...(status ? { status } : {}),
+      ...(assigneeId
+        ? { assignees: { some: { userId: assigneeId } } }
+        : {}),
+    },
+    orderBy: [{ status: "asc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
+    include: taskInclude,
+  });
+
+  return rows.map(formatTask);
+}
+
+export async function getKanbanBoard(userId, filters = {}) {
+  const tasks = await listTasksForUser(userId, filters);
+  const columns = {
+    TODO: [],
+    IN_PROGRESS: [],
+    REVIEW: [],
+    DONE: [],
+  };
+  for (const task of tasks) {
+    columns[task.status]?.push(task);
+  }
+  return { columns, tasks };
+}
+
+export async function getMemberProgress(userId, { teamId, projectId } = {}) {
+  const projectIds = await accessibleProjectIds(userId, projectId);
+  if (!projectIds.length) return [];
+
+  const where = {
+    projectId: { in: projectIds },
+    status: { not: TaskStatus.DONE },
+    ...(teamId ? { project: { teamProjects: { some: { teamId } } } } : {}),
+  };
+
+  const tasks = await prisma.projectTask.findMany({
+    where,
+    include: taskInclude,
+  });
+
+  const byUser = new Map();
+  for (const row of tasks) {
+    const task = formatTask(row);
+    const users = task.assignees.length
+      ? task.assignees
+      : [{ id: "unassigned", name: "Unassigned", avatar: null }];
+
+    for (const u of users) {
+      if (!byUser.has(u.id)) {
+        byUser.set(u.id, {
+          user: u.id === "unassigned" ? null : u,
+          total: 0,
+          inProgress: 0,
+          delayed: 0,
+          avgProgress: 0,
+          tasks: [],
+        });
+      }
+      const entry = byUser.get(u.id);
+      entry.total += 1;
+      if (task.status === TaskStatus.IN_PROGRESS) entry.inProgress += 1;
+      if (task.isDelayed) entry.delayed += 1;
+      entry.tasks.push(task);
+    }
+  }
+
+  return Array.from(byUser.values()).map((entry) => ({
+    ...entry,
+    avgProgress: entry.tasks.length
+      ? Math.round(entry.tasks.reduce((s, t) => s + t.progress, 0) / entry.tasks.length)
+      : 0,
+    tasks: entry.tasks.slice(0, 8),
+  }));
+}
+
+export async function getTaskStats(userId, { projectId, assigneeId, teamId, search } = {}) {
+  const projectIds = await accessibleProjectIds(userId, projectId);
+  const today = startOfToday();
+  const now = new Date();
+
+  if (!projectIds.length) {
+    return { total: 0, inProgress: 0, completedToday: 0, delayed: 0, byStatus: {} };
+  }
+
+  const where = {
+    projectId: { in: projectIds },
+    ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
+    ...(teamId ? { project: { teamProjects: { some: { teamId } } } } : {}),
+  };
+  if (search?.trim()) {
+    const q = search.trim();
+    where.OR = [
+      { title: { contains: q } },
+      { description: { contains: q } },
+    ];
+  }
+  const [total, inProgress, completedToday, delayed, grouped] = await Promise.all([
+    prisma.projectTask.count({ where: { ...where, status: { not: TaskStatus.DONE } } }),
+    prisma.projectTask.count({ where: { ...where, status: TaskStatus.IN_PROGRESS } }),
+    prisma.projectTask.count({
+      where: { ...where, completedAt: { gte: today } },
+    }),
+    prisma.projectTask.count({
+      where: {
+        ...where,
+        status: { not: TaskStatus.DONE },
+        dueDate: { lt: now },
+      },
+    }),
+    prisma.projectTask.groupBy({
+      by: ["status"],
+      where,
+      _count: { _all: true },
+    }),
+  ]);
+
+  const byStatus = Object.fromEntries(
+    grouped.map((g) => [g.status, g._count._all]),
+  );
+
+  return { total, inProgress, completedToday, delayed, byStatus };
+}
+
+export async function getTask(projectId, taskId) {
+  const row = await prisma.projectTask.findFirst({
+    where: { id: taskId, projectId },
+    include: {
+      ...taskInclude,
+      progressLogs: {
+        orderBy: [{ logDate: "desc" }, { loggedAt: "desc" }],
+        take: 30,
+        include: { user: { select: { id: true, name: true, avatar: true } } },
+      },
+    },
+  });
+  if (!row) throw new HttpError(404, "Task not found");
+  return {
+    ...formatTask(row),
+    progressLogs: row.progressLogs.map((l) => ({
+      id: l.id,
+      progress: l.progress,
+      note: l.note,
+      logDate: l.logDate,
+      loggedAt: l.loggedAt,
+      user: l.user,
+    })),
+  };
+}
+
+export async function createTask(projectId, userId, input) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, name: true },
+  });
+  if (!project) throw new HttpError(404, "Project not found");
+
+  const assigneeIds = input.assigneeIds ?? [];
+  await assertAssigneesAreMembers(projectId, assigneeIds);
+
+  const status = input.status ?? TaskStatus.TODO;
+  const progress = input.progress ?? (status === TaskStatus.DONE ? 100 : 0);
+
+  const task = await prisma.$transaction(async (tx) =>
+    tx.projectTask.create({
+      data: {
+        projectId,
+        title: input.title.trim(),
+        description: input.description?.trim() || null,
+        status,
+        priority: input.priority ?? "MEDIUM",
+        progress,
+        dueDate: input.dueDate ? new Date(input.dueDate) : null,
+        createdById: userId,
+        completedAt: status === TaskStatus.DONE ? new Date() : null,
+        assignees: assigneeIds.length
+          ? { create: assigneeIds.map((uid) => ({ userId: uid })) }
+          : undefined,
+      },
+      include: taskInclude,
+    }),
+  );
+
+  if (assigneeIds.length) {
+    await notifyAssignees({ task, project, assigneeIds, actorId: userId });
+  }
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "created",
+    entityType: "task",
+    entityId: task.id,
+    newValues: { title: task.title, status: task.status },
+  });
+
+  return formatTask(task);
+}
+
+export async function updateTask(projectId, taskId, userId, input) {
+  const existing = await prisma.projectTask.findFirst({
+    where: { id: taskId, projectId },
+    include: { assignees: true },
+  });
+  if (!existing) throw new HttpError(404, "Task not found");
+
+  if (input.assigneeIds) {
+    await assertAssigneesAreMembers(projectId, input.assigneeIds);
+  }
+
+  const data = {};
+  if (input.title !== undefined) data.title = input.title.trim();
+  if (input.description !== undefined) data.description = input.description?.trim() || null;
+  if (input.priority !== undefined) data.priority = input.priority;
+  if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+  if (input.dueDate !== undefined) {
+    data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
+  }
+  if (input.progress !== undefined) data.progress = input.progress;
+  if (input.status !== undefined) {
+    data.status = input.status;
+    if (input.status === TaskStatus.DONE) {
+      data.progress = input.progress ?? 100;
+      data.completedAt = new Date();
+    } else if (existing.status === TaskStatus.DONE) {
+      data.completedAt = null;
+    }
+  }
+
+  const task = await prisma.$transaction(async (tx) => {
+    if (input.assigneeIds) {
+      await tx.taskAssignee.deleteMany({ where: { taskId } });
+      if (input.assigneeIds.length) {
+        await tx.taskAssignee.createMany({
+          data: input.assigneeIds.map((uid) => ({ taskId, userId: uid })),
+        });
+      }
+    }
+
+    return tx.projectTask.update({
+      where: { id: taskId },
+      data,
+      include: taskInclude,
+    });
+  });
+
+  if (input.assigneeIds?.length) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true },
+    });
+    const prev = new Set(existing.assignees.map((a) => a.userId));
+    const added = input.assigneeIds.filter((id) => !prev.has(id));
+    if (added.length) {
+      await notifyAssignees({ task, project, assigneeIds: added, actorId: userId });
+    }
+  }
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "updated",
+    entityType: "task",
+    entityId: taskId,
+    oldValues: { status: existing.status, progress: existing.progress },
+    newValues: { status: task.status, progress: task.progress },
+  });
+
+  return formatTask(task);
+}
+
+export async function deleteTask(projectId, taskId, userId) {
+  const existing = await prisma.projectTask.findFirst({
+    where: { id: taskId, projectId },
+  });
+  if (!existing) throw new HttpError(404, "Task not found");
+
+  await prisma.projectTask.delete({ where: { id: taskId } });
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "deleted",
+    entityType: "task",
+    entityId: taskId,
+    oldValues: { title: existing.title },
+  });
+}
+
+export async function logTaskProgress(projectId, taskId, userId, input) {
+  const task = await prisma.projectTask.findFirst({
+    where: { id: taskId, projectId },
+  });
+  if (!task) throw new HttpError(404, "Task not found");
+
+  const logDate = input.logDate
+    ? new Date(`${input.logDate}T12:00:00.000Z`)
+    : startOfToday();
+
+  const log = await prisma.$transaction(async (tx) => {
+    const entry = await tx.taskProgressLog.create({
+      data: {
+        taskId,
+        userId,
+        progress: input.progress,
+        note: input.note?.trim() || null,
+        logDate,
+      },
+      include: { user: { select: { id: true, name: true, avatar: true } } },
+    });
+
+    const updates = { progress: input.progress };
+    if (input.progress >= 100) {
+      updates.status = TaskStatus.DONE;
+      updates.completedAt = new Date();
+    } else if (task.status === TaskStatus.TODO && input.progress > 0) {
+      updates.status = TaskStatus.IN_PROGRESS;
+    }
+
+    await tx.projectTask.update({ where: { id: taskId }, data: updates });
+
+    return entry;
+  });
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "progress",
+    entityType: "task",
+    entityId: taskId,
+    newValues: { progress: input.progress, note: input.note },
+  });
+
+  return {
+    id: log.id,
+    progress: log.progress,
+    note: log.note,
+    logDate: log.logDate,
+    loggedAt: log.loggedAt,
+    user: log.user,
+  };
+}
+
+export async function listTaskProgress(projectId, taskId) {
+  const task = await prisma.projectTask.findFirst({
+    where: { id: taskId, projectId },
+    select: { id: true },
+  });
+  if (!task) throw new HttpError(404, "Task not found");
+
+  const logs = await prisma.taskProgressLog.findMany({
+    where: { taskId },
+    orderBy: [{ logDate: "desc" }, { loggedAt: "desc" }],
+    include: { user: { select: { id: true, name: true, avatar: true } } },
+  });
+
+  return logs.map((l) => ({
+    id: l.id,
+    progress: l.progress,
+    note: l.note,
+    logDate: l.logDate,
+    loggedAt: l.loggedAt,
+    user: l.user,
+  }));
+}
+
+export async function getProjectTaskReport(projectId) {
+  const tasks = await prisma.projectTask.findMany({
+    where: { projectId },
+    orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+    include: taskInclude,
+  });
+
+  const progressLogs = await prisma.taskProgressLog.findMany({
+    where: { task: { projectId } },
+    orderBy: { logDate: "desc" },
+    take: 100,
+    include: {
+      user: { select: { id: true, name: true } },
+      task: { select: { id: true, title: true } },
+    },
+  });
+
+  const stats = {
+    total: tasks.length,
+    todo: tasks.filter((t) => t.status === TaskStatus.TODO).length,
+    inProgress: tasks.filter((t) => t.status === TaskStatus.IN_PROGRESS).length,
+    review: tasks.filter((t) => t.status === TaskStatus.REVIEW).length,
+    done: tasks.filter((t) => t.status === TaskStatus.DONE).length,
+    avgProgress: tasks.length
+      ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length)
+      : 0,
+  };
+
+  return {
+    stats,
+    tasks: tasks.map(formatTask),
+    recentProgress: progressLogs.map((l) => ({
+      id: l.id,
+      progress: l.progress,
+      note: l.note,
+      logDate: l.logDate,
+      user: l.user,
+      task: l.task,
+    })),
+  };
+}
+
+export { ProjectMemberRole };

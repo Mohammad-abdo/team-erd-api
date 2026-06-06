@@ -8,6 +8,7 @@ const r = Router();
 
 r.use(requireAuth);
 
+r.get("/directory", usersController.directory);
 r.get("/me", usersController.me);
 r.patch("/me", validate(patchMeSchema), usersController.patchMe);
 

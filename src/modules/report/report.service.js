@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
+import { getProjectTaskReport } from '../tasks/tasks.service.js'
 
 export async function generateProjectReport(projectId) {
   const project = await prisma.project.findUnique({
@@ -202,6 +203,8 @@ export async function generateProjectReport(projectId) {
       })),
       roles: generateRolesSummary(project.members)
     },
+
+    tasks: await getProjectTaskReport(projectId),
 
     recentActivity: project.activityLogs.map(log => ({
       id: log.id,

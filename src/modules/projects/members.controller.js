@@ -13,6 +13,23 @@ export const list = asyncHandler(async (req, res) => {
   });
 });
 
+export const add = asyncHandler(async (req, res) => {
+  const member = await membersService.addMemberDirect({
+    projectId: req.params.projectId,
+    userId: req.body.userId,
+    role: req.body.role,
+    addedById: req.user.sub,
+  });
+  res.status(201).json({
+    member: {
+      id: member.id,
+      role: member.role,
+      joinedAt: member.joinedAt,
+      user: member.user,
+    },
+  });
+});
+
 export const invite = asyncHandler(async (req, res) => {
   const invitation = await membersService.inviteMember({
     projectId: req.params.projectId,

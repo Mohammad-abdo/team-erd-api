@@ -7,7 +7,7 @@ import {
   requireProjectLeader,
   requireProjectRole,
 } from "../../middleware/projectAccess.js";
-import { inviteMemberSchema, updateMemberRoleSchema } from "./members.schemas.js";
+import { addMemberSchema, inviteMemberSchema, updateMemberRoleSchema } from "./members.schemas.js";
 import * as membersController from "./members.controller.js";
 
 const r = Router({ mergeParams: true });
@@ -16,6 +16,12 @@ r.use(requireAuth);
 r.use(loadProjectMember);
 
 r.get("/", membersController.list);
+r.post(
+  "/",
+  requireProjectRole(ProjectMemberRole.EDITOR),
+  validate(addMemberSchema),
+  membersController.add,
+);
 r.post(
   "/invite",
   requireProjectRole(ProjectMemberRole.EDITOR),

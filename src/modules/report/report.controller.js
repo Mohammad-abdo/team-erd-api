@@ -68,6 +68,13 @@ export const getProjectTeam = asyncHandler(async (req, res) => {
   return res.json(report.team)
 })
 
+export const getProjectTasks = asyncHandler(async (req, res) => {
+  const { projectId } = req.params
+  const report = await generateProjectReport(projectId)
+
+  return res.json(report.tasks)
+})
+
 function generateHtmlReport(report) {
   return `
 <!DOCTYPE html>

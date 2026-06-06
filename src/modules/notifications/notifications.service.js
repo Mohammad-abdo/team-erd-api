@@ -11,6 +11,13 @@ export async function listNotifications(userId, { limit = 50 } = {}) {
   });
 }
 
+export async function getUnreadCount(userId) {
+  const count = await prisma.notification.count({
+    where: { userId, readAt: null },
+  });
+  return count;
+}
+
 export async function markNotificationRead(userId, notificationId) {
   const row = await prisma.notification.findFirst({
     where: { id: notificationId, userId },

@@ -1,9 +1,11 @@
 import bcrypt from "bcryptjs";
-import { PlatformRole } from "@prisma/client";
+import { PlatformRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logAdminAudit } from "../../lib/audit.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
+import * as teamsService from "../teams/teams.service.js";
+import { addMemberDirect } from "../projects/members.service.js";
 
 const SALT_ROUNDS = 10;
 
@@ -92,28 +94,135 @@ export async function createUser(adminId, input) {
   return enrichUserProfile(user.id);
 }
 
+export async function getUserDetail(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatar: true,
+      platformRole: true,
+      isActive: true,
+      createdAt: true,
+      teamMemberships: {
+        include: { team: { select: { id: true, name: true, slug: true, color: true } } },
+      },
+      projectMembers: {
+        include: {
+          project: { select: { id: true, name: true, slug: true, healthStage: true } },
+        },
+        orderBy: { joinedAt: "desc" },
+      },
+    },
+  });
+  if (!user) throw new HttpError(404, "User not found");
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    avatar: user.avatar,
+    platformRole: user.platformRole,
+    isActive: user.isActive,
+    createdAt: user.createdAt,
+    teams: user.teamMemberships.map((m) => ({
+      id: m.team.id,
+      name: m.team.name,
+      slug: m.team.slug,
+      color: m.team.color,
+      role: m.role,
+    })),
+    projects: user.projectMembers.map((m) => ({
+      id: m.project.id,
+      name: m.project.name,
+      slug: m.project.slug,
+      healthStage: m.project.healthStage,
+      role: m.role,
+      joinedAt: m.joinedAt,
+    })),
+  };
+}
+
 export async function updateUser(adminId, userId, input) {
   if (adminId === userId && input.isActive === false) {
     throw new HttpError(400, "Cannot deactivate your own account");
   }
+
+  const data = {
+    ...(input.name !== undefined && { name: input.name.trim() }),
+    ...(input.isActive !== undefined && { isActive: input.isActive }),
+    ...(input.platformRole !== undefined && { platformRole: input.platformRole }),
+  };
+
+  if (input.password) {
+    data.passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
+  }
+
   const user = await prisma.user.update({
     where: { id: userId },
-    data: {
-      ...(input.name !== undefined && { name: input.name.trim() }),
-      ...(input.isActive !== undefined && { isActive: input.isActive }),
-      ...(input.platformRole !== undefined && { platformRole: input.platformRole }),
-    },
+    data,
   });
+
+  const auditMeta = { ...input };
+  if (auditMeta.password) auditMeta.password = "[reset]";
 
   await logAdminAudit({
     userId: adminId,
     action: "updated",
     entityType: "user",
     entityId: userId,
-    meta: input,
+    meta: auditMeta,
   });
 
   return enrichUserProfile(user.id);
+}
+
+export async function assignUserToTeam(adminId, userId, { teamId, role }) {
+  const member = await teamsService.addTeamMember(adminId, teamId, {
+    userId,
+    role: role ?? TeamRole.MEMBER,
+  });
+  return member;
+}
+
+export async function removeUserFromTeam(adminId, userId, teamId) {
+  await teamsService.removeTeamMember(adminId, teamId, userId);
+}
+
+export async function assignUserToProject(adminId, userId, { projectId, role }) {
+  const member = await addMemberDirect({
+    projectId,
+    userId,
+    role,
+    addedById: adminId,
+    asAdmin: true,
+  });
+  return member;
+}
+
+export async function removeUserFromProject(adminId, userId, projectId) {
+  const member = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+  });
+  if (!member) throw new HttpError(404, "User is not a project member");
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { leaderId: true },
+  });
+  if (project?.leaderId === userId) {
+    throw new HttpError(400, "Cannot remove the project leader");
+  }
+
+  await prisma.projectMember.delete({ where: { id: member.id } });
+
+  await logAdminAudit({
+    userId: adminId,
+    action: "removed_project_member",
+    entityType: "user",
+    entityId: userId,
+    meta: { projectId, role: member.role },
+  });
 }
 
 export async function listAllProjects({ skip = 0, take = 50 } = {}) {

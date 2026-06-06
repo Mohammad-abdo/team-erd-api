@@ -10,6 +10,24 @@ export async function getUserById(id) {
   return user;
 }
 
+export async function listUserDirectory({ q, limit = 50 } = {}) {
+  const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const where = { isActive: true };
+  if (q?.trim()) {
+    const term = q.trim();
+    where.OR = [
+      { name: { contains: term } },
+      { email: { contains: term } },
+    ];
+  }
+  return prisma.user.findMany({
+    where,
+    orderBy: { name: "asc" },
+    take,
+    select: { id: true, name: true, email: true, avatar: true },
+  });
+}
+
 export async function updateUserProfile(userId, data) {
   const user = await prisma.user.update({
     where: { id: userId },

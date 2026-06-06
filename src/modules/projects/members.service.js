@@ -21,6 +21,56 @@ export async function listMembers(projectId) {
   });
 }
 
+export async function addMemberDirect({ projectId, userId, role, addedById, asAdmin = false }) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, name: true, leaderId: true },
+  });
+  if (!project) throw new HttpError(404, "Project not found");
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, isActive: true },
+  });
+  if (!user?.isActive) throw new HttpError(404, "User not found");
+
+  const existing = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+  });
+  if (existing) throw new HttpError(409, "User is already a member");
+
+  const member = await prisma.projectMember.create({
+    data: { projectId, userId, role },
+    include: {
+      user: { select: { id: true, name: true, email: true, avatar: true } },
+    },
+  });
+
+  await logActivity({
+    projectId,
+    userId: addedById,
+    action: "created",
+    entityType: "project_member",
+    entityId: member.id,
+    newValues: { userId, role, direct: true, asAdmin },
+  });
+
+  const notification = await prisma.notification.create({
+    data: {
+      userId,
+      type: "project_added",
+      title: `Added to ${project.name}`,
+      body: `You were added to "${project.name}" as ${role}.`,
+      data: { projectId },
+    },
+  });
+  emitToUser(userId, "notification:new", { notification });
+
+  emitToProject(projectId, "members:updated", { at: Date.now() });
+
+  return member;
+}
+
 export async function inviteMember({ projectId, invitedById, email, role }) {
   const normalized = email.trim().toLowerCase();
   const project = await prisma.project.findUnique({

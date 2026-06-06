@@ -20,6 +20,10 @@ import {
   ApiParameterLocation,
   ErdRelationType,
   CommentableType,
+  TaskStatus,
+  TaskPriority,
+  DailyTaskSource,
+  DailyReportScope,
 } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -599,6 +603,164 @@ async function main() {
       where: { teamId_projectId: { teamId: teamsBySlug.backend.id, projectId: project.id } },
       create: { teamId: teamsBySlug.backend.id, projectId: project.id },
       update: {},
+    });
+  }
+
+  console.log("Seeding project tasks…");
+  const taskDefs = [
+    {
+      title: "ERD design for Wallet module",
+      status: TaskStatus.TODO,
+      priority: TaskPriority.HIGH,
+      progress: 0,
+      assignees: [editor.id],
+    },
+    {
+      title: "Build Task Manager API",
+      status: TaskStatus.IN_PROGRESS,
+      priority: TaskPriority.HIGH,
+      progress: 60,
+      assignees: [admin.id, editor.id],
+    },
+    {
+      title: "Auto layout for ERD whiteboard",
+      status: TaskStatus.IN_PROGRESS,
+      priority: TaskPriority.MEDIUM,
+      progress: 40,
+      assignees: [editor.id],
+    },
+    {
+      title: "Live cursor presence",
+      status: TaskStatus.REVIEW,
+      priority: TaskPriority.MEDIUM,
+      progress: 90,
+      assignees: [admin.id],
+    },
+    {
+      title: "Notification badge in sidebar",
+      status: TaskStatus.REVIEW,
+      priority: TaskPriority.LOW,
+      progress: 85,
+      assignees: [editor.id],
+    },
+    {
+      title: "Setup Docker Compose",
+      status: TaskStatus.DONE,
+      priority: TaskPriority.LOW,
+      progress: 100,
+      assignees: [admin.id],
+      completed: true,
+    },
+  ];
+
+  for (const def of taskDefs) {
+    const existing = await prisma.projectTask.findFirst({
+      where: { projectId: project.id, title: def.title },
+    });
+    if (existing) continue;
+
+    const task = await prisma.projectTask.create({
+      data: {
+        projectId: project.id,
+        title: def.title,
+        status: def.status,
+        priority: def.priority,
+        progress: def.progress,
+        createdById: admin.id,
+        completedAt: def.completed ? new Date() : null,
+        assignees: {
+          create: def.assignees.map((userId) => ({ userId })),
+        },
+      },
+    });
+
+    if (def.status === TaskStatus.IN_PROGRESS) {
+      await prisma.taskProgressLog.create({
+        data: {
+          taskId: task.id,
+          userId: def.assignees[0],
+          progress: def.progress,
+          note: "Daily update from seed",
+          logDate: new Date(),
+        },
+      });
+    }
+  }
+
+  console.log("Seeding team daily tasks…");
+  const backendTeam = teamsBySlug.backend;
+  const today = new Date();
+  today.setUTCHours(12, 0, 0, 0);
+
+  const dailyDefs = [
+    { title: "Review PR #42 — auth middleware", assigneeId: editor.id, source: DailyTaskSource.ASSIGNED, status: TaskStatus.IN_PROGRESS },
+    { title: "Update API docs for login endpoint", assigneeId: editor.id, source: DailyTaskSource.ASSIGNED, status: TaskStatus.TODO },
+    { title: "Fix sidebar RTL spacing", assigneeId: admin.id, source: DailyTaskSource.PERSONAL, status: TaskStatus.TODO },
+    { title: "Stand-up notes & blockers", assigneeId: viewer.id, source: DailyTaskSource.PERSONAL, status: TaskStatus.DONE },
+  ];
+
+  for (const def of dailyDefs) {
+    const existing = await prisma.dailyTask.findFirst({
+      where: { teamId: backendTeam.id, title: def.title, taskDate: today },
+    });
+    if (existing) continue;
+    await prisma.dailyTask.create({
+      data: {
+        teamId: backendTeam.id,
+        title: def.title,
+        taskDate: today,
+        assigneeId: def.assigneeId,
+        createdById: admin.id,
+        source: def.source,
+        status: def.status,
+        priority: TaskPriority.MEDIUM,
+        completedAt: def.status === TaskStatus.DONE ? new Date() : null,
+      },
+    });
+  }
+
+  console.log("Seeding member ratings & daily reports…");
+  const ratingDefs = [
+    { userId: editor.id, score: 5, comment: "Excellent API documentation work this sprint." },
+    { userId: editor.id, score: 4, comment: "Strong collaboration on ERD schema reviews." },
+  ];
+  for (const def of ratingDefs) {
+    const exists = await prisma.memberRating.findFirst({
+      where: { userId: def.userId, reviewerId: admin.id, teamId: backendTeam.id, score: def.score },
+    });
+    if (exists) continue;
+    await prisma.memberRating.create({
+      data: { ...def, reviewerId: admin.id, teamId: backendTeam.id },
+    });
+  }
+
+  const reportDefs = [
+    {
+      userId: editor.id,
+      scope: DailyReportScope.TASKS,
+      summary: "Completed auth middleware review and updated task board.",
+      tasksDone: "PR review, API docs update, 2 daily tasks closed",
+      blockers: "Waiting on staging credentials",
+      nextPlan: "Finish notification badge and deploy to staging",
+      hoursWorked: 7.5,
+      mood: 4,
+    },
+    {
+      userId: admin.id,
+      scope: DailyReportScope.PROJECT,
+      summary: "Led sprint planning and assigned daily tasks to backend team.",
+      tasksDone: "Sprint planning, team ratings, project health review",
+      hoursWorked: 8,
+      mood: 5,
+    },
+  ];
+  for (const def of reportDefs) {
+    const exists = await prisma.dailyReport.findFirst({
+      where: { userId: def.userId, teamId: backendTeam.id, reportDate: today, scope: def.scope },
+    });
+    if (exists) continue;
+    await prisma.dailyReport.create({
+      data: { ...def, teamId: backendTeam.id, reportDate: today },
     });
   }
 

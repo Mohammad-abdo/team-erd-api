@@ -8,6 +8,7 @@ import {
   assignProjectSchema,
 } from "./teams.schemas.js";
 import * as teamsController from "./teams.controller.js";
+import dailyTasksRoutes from "../dailyTasks/daily-tasks.routes.js";
 
 const r = Router();
 
@@ -22,5 +23,6 @@ r.post("/:teamId/members", validate(addMemberSchema), teamsController.addMember)
 r.delete("/:teamId/members/:userId", teamsController.removeMember);
 r.post("/:teamId/projects", validate(assignProjectSchema), teamsController.assignProject);
 r.delete("/:teamId/projects/:projectId", teamsController.unassignProject);
+r.use("/:teamId/daily-tasks", dailyTasksRoutes);
 
 export default r;

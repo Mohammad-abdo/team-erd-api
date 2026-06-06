@@ -77,3 +77,54 @@ export async function createProjectFromTemplate(userId, templateId, { name, team
 
   return project;
 }
+
+export async function getTemplate(templateId) {
+  const template = await prisma.projectTemplate.findUnique({
+    where: { id: templateId },
+    include: { createdBy: { select: { id: true, name: true } } },
+  });
+  if (!template) throw new HttpError(404, "Template not found");
+  return template;
+}
+
+export async function updateTemplate(userId, templateId, input) {
+  if (!(await isPlatformAdmin(userId))) {
+    throw new HttpError(403, "Only platform admin can update templates");
+  }
+  await getTemplate(templateId);
+  return prisma.projectTemplate.update({
+    where: { id: templateId },
+    data: {
+      ...(input.name !== undefined && { name: input.name.trim() }),
+      ...(input.description !== undefined && { description: input.description?.trim() ?? null }),
+      ...(input.erdJson !== undefined && { erdJson: input.erdJson }),
+      ...(input.apiJson !== undefined && { apiJson: input.apiJson }),
+      ...(input.isPublic !== undefined && { isPublic: input.isPublic }),
+    },
+  });
+}
+
+export async function deleteTemplate(userId, templateId) {
+  if (!(await isPlatformAdmin(userId))) {
+    throw new HttpError(403, "Only platform admin can delete templates");
+  }
+  await getTemplate(templateId);
+  await prisma.projectTemplate.delete({ where: { id: templateId } });
+}
+
+export async function createTemplateFromProject(userId, projectId, { name, description }) {
+  if (!(await isPlatformAdmin(userId))) {
+    throw new HttpError(403, "Only platform admin can create templates");
+  }
+
+  const { exportErdJson } = await import("../export/export.service.js");
+  const exported = await exportErdJson(projectId);
+
+  return createTemplate(userId, {
+    name,
+    description,
+    erdJson: exported.erd,
+    apiJson: exported.api,
+    isPublic: true,
+  });
+}
