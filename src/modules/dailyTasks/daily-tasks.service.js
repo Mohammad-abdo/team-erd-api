@@ -70,14 +70,13 @@ async function assertAssigneeInTeam(teamId, assigneeId) {
 
 async function notifyAssignee({ task, team, assigneeId, actorId }) {
   if (!assigneeId || assigneeId === actorId) return;
-  await prisma.notification.create({
-    data: {
-      userId: assigneeId,
-      type: "DAILY_TASK_ASSIGNED",
-      title: `Daily task: ${task.title}`,
-      body: `${team.name} — ${task.title}`,
-      data: { taskId: task.id, teamId: team.id, taskDate: dateToKey(task.taskDate) },
-    },
+  const { deliverNotification } = await import("../../lib/notify.js");
+  await deliverNotification({
+    userId: assigneeId,
+    type: "DAILY_TASK_ASSIGNED",
+    title: `Daily task: ${task.title}`,
+    body: `${team.name} — ${task.title}`,
+    data: { taskId: task.id, teamId: team.id, taskDate: dateToKey(task.taskDate) },
   });
 }
 

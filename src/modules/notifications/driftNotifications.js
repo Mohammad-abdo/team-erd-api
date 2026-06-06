@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { emitToUser } from "../../sockets/emit.js";
+import { deliverToUsers } from "../../lib/notify.js";
 
 export async function notifyDriftDetected({
   projectId,
@@ -46,26 +46,15 @@ export async function notifyDriftDetected({
   const title = `Schema drift: ${issueCount} issue(s)`;
   const body = `${actorName} found ${issueCount} drift issue(s) vs ${databaseLabel ?? "database"} in ${project.name}`;
 
-  const notifications = await Promise.all(
-    recipientIds.map((userId) =>
-      prisma.notification.create({
-        data: {
-          userId,
-          type: "schema_drift",
-          title,
-          body,
-          data: {
-            projectId,
-            issueCount,
-            databaseLabel: databaseLabel ?? null,
-            source,
-          },
-        },
-      }),
-    ),
-  );
-
-  for (const notification of notifications) {
-    emitToUser(notification.userId, "notification:new", { notification });
-  }
+  await deliverToUsers(recipientIds, {
+    type: "schema_drift",
+    title,
+    body,
+    data: {
+      projectId,
+      issueCount,
+      databaseLabel: databaseLabel ?? null,
+      source,
+    },
+  });
 }

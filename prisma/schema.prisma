@@ -105,9 +105,10 @@ model User {
   email        String       @unique @db.VarChar(255)
   passwordHash String?      @map("password_hash") @db.VarChar(255)
   avatar       String?
-  platformRole PlatformRole @default(MEMBER) @map("platform_role")
-  isActive     Boolean      @default(true) @map("is_active")
-  createdAt    DateTime     @default(now()) @map("created_at")
+  platformRole        PlatformRole @default(MEMBER) @map("platform_role")
+  isActive            Boolean      @default(true) @map("is_active")
+  notificationPrefs   Json?        @map("notification_prefs")
+  createdAt           DateTime     @default(now()) @map("created_at")
 
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]

@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { emitToProject, emitToUser } from "../../sockets/emit.js";
+import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 import { sendEmail } from "../../lib/email.js";
 import { config } from "../../config/index.js";
@@ -55,16 +55,14 @@ export async function addMemberDirect({ projectId, userId, role, addedById, asAd
     newValues: { userId, role, direct: true, asAdmin },
   });
 
-  const notification = await prisma.notification.create({
-    data: {
-      userId,
-      type: "project_added",
-      title: `Added to ${project.name}`,
-      body: `You were added to "${project.name}" as ${role}.`,
-      data: { projectId },
-    },
+  const { deliverNotification } = await import("../../lib/notify.js");
+  await deliverNotification({
+    userId,
+    type: "project_added",
+    title: `Added to ${project.name}`,
+    body: `You were added to "${project.name}" as ${role}.`,
+    data: { projectId },
   });
-  emitToUser(userId, "notification:new", { notification });
 
   emitToProject(projectId, "members:updated", { at: Date.now() });
 
@@ -134,16 +132,14 @@ export async function inviteMember({ projectId, invitedById, email, role }) {
   emitToProject(projectId, "members:updated", { at: Date.now() });
 
   if (existingUser) {
-    const notification = await prisma.notification.create({
-      data: {
-        userId: existingUser.id,
-        type: "project_invite",
-        title: `Invitation to ${project.name}`,
-        body: "You have been invited to collaborate on a project.",
-        data: { projectId, invitationId: invitation.id, token },
-      },
+    const { deliverNotification } = await import("../../lib/notify.js");
+    await deliverNotification({
+      userId: existingUser.id,
+      type: "project_invite",
+      title: `Invitation to ${project.name}`,
+      body: "You have been invited to collaborate on a project.",
+      data: { projectId, invitationId: invitation.id, token },
     });
-    emitToUser(existingUser.id, "notification:new", { notification });
   }
 
   const inviteUrl = `${config.appUrl}/invite?token=${token}`;

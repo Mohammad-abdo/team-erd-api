@@ -121,14 +121,12 @@ async function assertAssigneesAreMembers(projectId, assigneeIds) {
 async function notifyAssignees({ task, project, assigneeIds, actorId }) {
   const targets = assigneeIds.filter((id) => id !== actorId);
   if (!targets.length) return;
-  await prisma.notification.createMany({
-    data: targets.map((userId) => ({
-      userId,
-      type: "TASK_ASSIGNED",
-      title: `Task assigned: ${task.title}`,
-      body: `${project.name} — ${task.title}`,
-      data: { taskId: task.id, projectId: project.id },
-    })),
+  const { deliverToUsers } = await import("../../lib/notify.js");
+  await deliverToUsers(targets, {
+    type: "TASK_ASSIGNED",
+    title: `Task assigned: ${task.title}`,
+    body: `${project.name} — ${task.title}`,
+    data: { taskId: task.id, projectId: project.id },
   });
 }
 

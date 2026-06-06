@@ -6,6 +6,7 @@ import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 import { hasMinRole } from "../../lib/permissions.js";
 import { absoluteStoragePath, relativeStoragePath } from "../../lib/commentUpload.js";
+import { notifyCommentActivity } from "../notifications/commentNotifications.js";
 
 const userSelect = { id: true, name: true, email: true, avatar: true };
 const attachmentSelect = {
@@ -118,6 +119,13 @@ export async function createComment(projectId, userId, memberRole, input, files 
   });
 
   emitToProject(projectId, "comments:updated", { at: Date.now() });
+
+  await notifyCommentActivity({
+    projectId,
+    actorId: userId,
+    comment,
+    parentId: input.parentId ?? null,
+  });
 
   return comment;
 }

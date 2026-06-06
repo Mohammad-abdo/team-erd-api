@@ -100,6 +100,9 @@ export const config = {
     apiKey: process.env.OPENAI_API_KEY?.trim() || null,
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
   },
+  storage: {
+    commentAttachmentsDir: process.env.COMMENT_ATTACHMENTS_DIR?.trim() || null,
+  },
   oauth: {
     google: {
       clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || null,

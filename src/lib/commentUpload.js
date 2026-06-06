@@ -4,9 +4,13 @@ import { fileURLToPath } from "url";
 import multer from "multer";
 import { randomBytes } from "crypto";
 import { HttpError } from "../utils/httpError.js";
+import { config } from "../config/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const UPLOAD_ROOT = path.join(__dirname, "../../uploads/comment-attachments");
+const DEFAULT_UPLOAD_ROOT = path.join(__dirname, "../../uploads/comment-attachments");
+export const UPLOAD_ROOT = config.storage.commentAttachmentsDir
+  ? path.resolve(config.storage.commentAttachmentsDir)
+  : DEFAULT_UPLOAD_ROOT;
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_FILES = 5;

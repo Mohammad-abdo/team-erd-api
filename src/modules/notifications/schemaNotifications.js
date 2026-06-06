@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { emitToUser } from "../../sockets/emit.js";
+import { deliverToUsers } from "../../lib/notify.js";
 
 const NOTIFY_ACTIONS = new Set(["created", "deleted", "updated"]);
 const NOTIFY_ENTITIES = new Set([
@@ -56,21 +56,10 @@ export async function notifySchemaChange({
   const title = `Schema ${action}: ${entityLabel}${detail}`;
   const body = `${actorName} ${action} a ${entityLabel}${detail} in ${project.name}`;
 
-  const notifications = await Promise.all(
-    recipientIds.map((userId) =>
-      prisma.notification.create({
-        data: {
-          userId,
-          type: "schema_change",
-          title,
-          body,
-          data: { projectId, action, entityType, label: label ?? null },
-        },
-      }),
-    ),
-  );
-
-  for (const notification of notifications) {
-    emitToUser(notification.userId, "notification:new", { notification });
-  }
+  await deliverToUsers(recipientIds, {
+    type: "schema_change",
+    title,
+    body,
+    data: { projectId, action, entityType, label: label ?? null },
+  });
 }

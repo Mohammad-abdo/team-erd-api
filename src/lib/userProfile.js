@@ -1,6 +1,7 @@
 import { PlatformRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { serializeClientAccess } from "./clientPortal.js";
+import { mergeNotificationPrefs } from "./notificationPrefs.js";
 
 const userPublicSelect = {
   id: true,
@@ -27,8 +28,10 @@ export async function enrichUserProfile(userId) {
   if (!user) return null;
   const { teamMemberships, ...rest } = user;
 
+  const { notificationPrefs, ...publicRest } = rest;
   const profile = {
-    ...rest,
+    ...publicRest,
+    notificationPrefs: mergeNotificationPrefs(notificationPrefs),
     teams: teamMemberships.map((m) => ({
       id: m.team.id,
       name: m.team.name,

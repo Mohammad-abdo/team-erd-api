@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
+import { patchNotificationPrefs } from "../../lib/notificationPrefs.js";
 
 export async function getUserById(id) {
   const user = await enrichUserProfile(id);
@@ -29,6 +30,18 @@ export async function listUserDirectory({ q, limit = 50 } = {}) {
 }
 
 export async function updateUserProfile(userId, data) {
+  let notificationPrefsUpdate;
+  if (data.notificationPrefs !== undefined) {
+    const existing = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { notificationPrefs: true },
+    });
+    notificationPrefsUpdate = patchNotificationPrefs(
+      existing?.notificationPrefs,
+      data.notificationPrefs,
+    );
+  }
+
   const user = await prisma.user.update({
     where: { id: userId },
     data: {
@@ -36,6 +49,7 @@ export async function updateUserProfile(userId, data) {
       ...(data.avatar !== undefined && {
         avatar: data.avatar === "" || data.avatar === null ? null : data.avatar,
       }),
+      ...(notificationPrefsUpdate !== undefined && { notificationPrefs: notificationPrefsUpdate }),
     },
   });
   return enrichUserProfile(user.id);
