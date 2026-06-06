@@ -9,6 +9,14 @@ import {
 } from "./auth.service.js";
 import { rotateRefreshToken, signAccessToken } from "../../lib/tokens.js";
 import { HttpError } from "../../utils/httpError.js";
+import {
+  createOAuthState,
+  googleAuthorizeUrl,
+  isGoogleOAuthEnabled,
+  listOAuthProviders,
+  loginWithGoogleCode,
+  verifyOAuthState,
+} from "./oauth.service.js";
 
 export const register = asyncHandler(async (req, res) => {
   if (!config.allowPublicRegistration) {
@@ -60,4 +68,39 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 export const resetPassword = asyncHandler(async (req, res) => {
   await resetPasswordWithToken(req.body.token, req.body.password);
   res.json({ message: "Password has been reset. You can sign in with your new password." });
+});
+
+export const oauthProviders = asyncHandler(async (_req, res) => {
+  res.json(listOAuthProviders());
+});
+
+export const googleOAuthStart = asyncHandler(async (_req, res) => {
+  if (!isGoogleOAuthEnabled()) {
+    throw new HttpError(503, "Google sign-in is not configured");
+  }
+  const state = createOAuthState();
+  res.redirect(googleAuthorizeUrl(state));
+});
+
+export const googleOAuthCallback = asyncHandler(async (req, res) => {
+  if (!isGoogleOAuthEnabled()) {
+    throw new HttpError(503, "Google sign-in is not configured");
+  }
+
+  const { code, state, error } = req.query;
+  if (error) {
+    return res.redirect(`${config.appUrl}/auth/login?oauth_error=${encodeURIComponent(String(error))}`);
+  }
+  if (!code || !state) {
+    throw new HttpError(400, "Missing OAuth code or state");
+  }
+
+  verifyOAuthState(String(state));
+  const session = await loginWithGoogleCode(String(code));
+
+  const params = new URLSearchParams({
+    accessToken: session.accessToken,
+    refreshToken: session.refreshToken,
+  });
+  res.redirect(`${config.appUrl}/auth/oauth/callback?${params.toString()}`);
 });

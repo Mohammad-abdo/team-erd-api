@@ -79,6 +79,14 @@ export const config = {
   sentryDsn: process.env.SENTRY_DSN?.trim() || null,
   rateLimits: {
     expensiveDbMax: Number(process.env.RATE_LIMIT_EXPENSIVE_DB_MAX ?? (isProd ? 20 : 200)),
+    loginMax: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? (isProd ? 10 : 100)),
+    loginWindowMs: Number(process.env.RATE_LIMIT_LOGIN_WINDOW_MS ?? 60 * 1000),
+    forgotPasswordMax: Number(process.env.RATE_LIMIT_FORGOT_PASSWORD_MAX ?? (isProd ? 5 : 50)),
+    forgotPasswordWindowMs: Number(process.env.RATE_LIMIT_FORGOT_PASSWORD_WINDOW_MS ?? 60 * 60 * 1000),
+    aiMax: Number(process.env.RATE_LIMIT_AI_MAX ?? (isProd ? 30 : 200)),
+    exportMax: Number(process.env.RATE_LIMIT_EXPORT_MAX ?? (isProd ? 60 : 600)),
+    adminBackupMax: Number(process.env.RATE_LIMIT_ADMIN_BACKUP_MAX ?? (isProd ? 10 : 100)),
+    adminBackupWindowMs: Number(process.env.RATE_LIMIT_ADMIN_BACKUP_WINDOW_MS ?? 60 * 60 * 1000),
   },
   smtp: {
     host: process.env.SMTP_HOST?.trim() || null,
@@ -91,5 +99,14 @@ export const config = {
   openai: {
     apiKey: process.env.OPENAI_API_KEY?.trim() || null,
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
+  },
+  oauth: {
+    google: {
+      clientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || null,
+      clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || null,
+      callbackUrl:
+        process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim()
+        || `${process.env.API_PUBLIC_URL?.trim() || "http://localhost:4000"}/api/auth/oauth/google/callback`,
+    },
   },
 };

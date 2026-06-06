@@ -7,6 +7,7 @@ import {
   PermissionResource,
   PermissionAction,
 } from "../../middleware/projectAccess.js";
+import { aiLimiter } from "../../middleware/rateLimits.js";
 import { generateSchemaSchema, explainDriftSchema, applyApiRoutesSchema } from "./ai.schemas.js";
 import * as aiController from "./ai.controller.js";
 
@@ -14,6 +15,7 @@ const r = Router({ mergeParams: true });
 
 r.use(requireAuth);
 r.use(loadProjectMember);
+r.use(aiLimiter);
 
 const erdView = requireProjectPermission(PermissionResource.ERD, PermissionAction.VIEW);
 const erdEdit = requireProjectPermission(PermissionResource.ERD, PermissionAction.EDIT);

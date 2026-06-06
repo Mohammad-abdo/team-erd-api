@@ -119,7 +119,7 @@ function buildMemberWorkReport({
 
   return {
     generatedAt: new Date().toISOString(),
-    member: { id: user.id, name: user.name, email: user.email },
+    member: { id: user.id, name: user.name, email: user.email, avatar: user.avatar ?? null },
     period: {
       from: weekAgo.toISOString(),
       to: today.toISOString(),

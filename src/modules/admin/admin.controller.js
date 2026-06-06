@@ -1,6 +1,7 @@
 import { config } from "../../config/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { isEmailConfigured, sendEmail } from "../../lib/email.js";
+import { getRateLimitCatalog } from "../../middleware/rateLimits.js";
 import * as adminService from "./admin.service.js";
 
 export const stats = asyncHandler(async (_req, res) => {
@@ -65,6 +66,14 @@ export const listProjects = asyncHandler(async (req, res) => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
   const data = await adminService.listAllProjects({ skip: (page - 1) * limit, take: limit });
   res.json({ ...data, page, limit });
+});
+
+export const rateLimits = asyncHandler(async (_req, res) => {
+  res.json({
+    enforced: config.isProd,
+    environment: config.nodeEnv,
+    limits: getRateLimitCatalog(),
+  });
 });
 
 export const auditLog = asyncHandler(async (req, res) => {

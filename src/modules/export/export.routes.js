@@ -6,6 +6,7 @@ import {
   PermissionResource,
   PermissionAction,
 } from "../../middleware/projectAccess.js";
+import { exportLimiter } from "../../middleware/rateLimits.js";
 import * as exportController from "./export.controller.js";
 
 const r = Router({ mergeParams: true });
@@ -13,6 +14,7 @@ const r = Router({ mergeParams: true });
 r.use(requireAuth);
 r.use(loadProjectMember);
 r.use(requireProjectPermission(PermissionResource.EXPORTS, PermissionAction.VIEW));
+r.use(exportLimiter);
 
 r.get("/sql", exportController.sql);
 r.get("/json", exportController.json);

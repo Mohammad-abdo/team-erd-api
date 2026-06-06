@@ -10,6 +10,7 @@ import {
   updateClientAccessSchema,
   updateUserSchema,
 } from "./admin.schemas.js";
+import { adminBackupLimiter } from "../../middleware/rateLimits.js";
 import * as adminController from "./admin.controller.js";
 
 const r = Router();
@@ -32,7 +33,8 @@ r.patch(
 r.delete("/users/:userId/projects/:projectId", adminController.removeProject);
 r.get("/projects", adminController.listProjects);
 r.get("/audit", adminController.auditLog);
-r.get("/backup", adminController.backup);
+r.get("/security/rate-limits", adminController.rateLimits);
+r.get("/backup", adminBackupLimiter, adminController.backup);
 r.get("/email/status", adminController.emailStatus);
 r.post("/email/test", validate(testEmailSchema), adminController.testEmail);
 

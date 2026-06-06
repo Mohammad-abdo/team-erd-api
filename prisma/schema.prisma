@@ -103,7 +103,7 @@ model User {
   id           String       @id @default(cuid())
   name         String       @db.VarChar(200)
   email        String       @unique @db.VarChar(255)
-  passwordHash String       @map("password_hash") @db.VarChar(255)
+  passwordHash String?      @map("password_hash") @db.VarChar(255)
   avatar       String?
   platformRole PlatformRole @default(MEMBER) @map("platform_role")
   isActive     Boolean      @default(true) @map("is_active")
@@ -111,6 +111,7 @@ model User {
 
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  oauthAccounts       OAuthAccount[]
 
   projectsLed    Project[]           @relation("ProjectLeader")
   projectMembers       ProjectMember[]
@@ -170,6 +171,21 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+model OAuthAccount {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  provider   String   @db.VarChar(50)
+  providerId String   @map("provider_id") @db.VarChar(255)
+  email      String?  @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
+  @@map("oauth_accounts")
 }
 
 model Project {

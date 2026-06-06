@@ -8,6 +8,9 @@ import { HttpError } from "../utils/httpError.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const UPLOAD_ROOT = path.join(__dirname, "../../uploads/comment-attachments");
 
+export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+export const MAX_FILES = 5;
+
 const ALLOWED_MIME = new Set([
   "image/jpeg",
   "image/png",
@@ -19,9 +22,6 @@ const ALLOWED_MIME = new Set([
   "text/sql",
   "application/octet-stream",
 ]);
-
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_FILES = 5;
 
 function ensureUploadDir(projectId) {
   const dir = path.join(UPLOAD_ROOT, projectId);
@@ -58,11 +58,30 @@ function fileFilter(_req, file, cb) {
   }
 }
 
-export const commentUploadMiddleware = multer({
+const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_BYTES, files: MAX_FILES },
   fileFilter,
-}).array("files", MAX_FILES);
+});
+
+export const commentUploadMiddleware = upload.array("files", MAX_FILES);
+
+/** Express middleware wrapper — maps Multer errors to HTTP responses. */
+export function commentUploadHandler(req, res, next) {
+  commentUploadMiddleware(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return next(new HttpError(413, "Each file must be 5 MB or smaller"));
+      }
+      if (err.code === "LIMIT_FILE_COUNT") {
+        return next(new HttpError(400, `Maximum ${MAX_FILES} files per comment`));
+      }
+      return next(new HttpError(400, err.message));
+    }
+    return next(err);
+  });
+}
 
 export function relativeStoragePath(projectId, filename) {
   return path.join(projectId, filename).replace(/\\/g, "/");

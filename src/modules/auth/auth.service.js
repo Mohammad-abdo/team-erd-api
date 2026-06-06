@@ -45,6 +45,10 @@ export async function loginUser({ email, password }) {
     throw new HttpError(401, "Invalid email or password");
   }
 
+  if (!user.passwordHash) {
+    throw new HttpError(401, "This account uses SSO — sign in with Google");
+  }
+
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) {
     throw new HttpError(401, "Invalid email or password");

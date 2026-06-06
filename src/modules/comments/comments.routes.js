@@ -8,7 +8,7 @@ import {
   PermissionAction,
 } from "../../middleware/projectAccess.js";
 import { listCommentsQuerySchema } from "./comments.schemas.js";
-import { commentUploadMiddleware } from "../../lib/commentUpload.js";
+import { commentUploadHandler } from "../../lib/commentUpload.js";
 import * as commentsController from "./comments.controller.js";
 
 const r = Router({ mergeParams: true });
@@ -22,7 +22,7 @@ const commentsEdit = requireProjectPermission(PermissionResource.COMMENTS, Permi
 
 r.get("/", commentsView, validate(listCommentsQuerySchema, "query"), commentsController.list);
 r.get("/attachments/:attachmentId", commentsView, commentsController.downloadAttachment);
-r.post("/", commentsCreate, commentUploadMiddleware, commentsController.create);
+r.post("/", commentsCreate, commentUploadHandler, commentsController.create);
 r.put("/:commentId/resolve", commentsEdit, commentsController.resolve);
 
 export default r;
