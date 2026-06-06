@@ -29,3 +29,19 @@ export const postman = asyncHandler(async (req, res) => {
     .setHeader("Content-Disposition", "attachment; filename=\"postman_collection.json\"")
     .json(col);
 });
+
+export const prismaSchema = asyncHandler(async (req, res) => {
+  const schema = await exportService.exportErdPrisma(req.params.projectId);
+  res
+    .setHeader("Content-Disposition", "attachment; filename=\"schema.prisma\"")
+    .type("text/plain")
+    .send(schema);
+});
+
+export const typeorm = asyncHandler(async (req, res) => {
+  const entities = await exportService.exportErdTypeOrm(req.params.projectId);
+  res
+    .setHeader("Content-Disposition", "attachment; filename=\"entities.ts\"")
+    .type("text/plain")
+    .send(entities);
+});

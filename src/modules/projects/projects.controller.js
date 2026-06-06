@@ -1,9 +1,10 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { serializeClientAccess } from "../../lib/clientPortal.js";
 import { computeProjectHealthStage } from "./projectHealthStage.js";
 import * as projectsService from "./projects.service.js";
 
 function serializeProject(project) {
-  const { members, _count, activityLogs, apiGroups, ...rest } = project;
+  const { members, _count, activityLogs, apiGroups, clientAccess, ...rest } = project;
   const apiRouteTotal = (apiGroups ?? []).reduce((acc, g) => acc + (g._count?.routes ?? 0), 0);
   const lastAt = activityLogs?.[0]?.createdAt ?? project.createdAt;
   const tableCount = _count?.erdTables ?? 0;
@@ -31,6 +32,7 @@ function serializeProject(project) {
     },
     lastActivityAt: lastAt instanceof Date ? lastAt.toISOString() : lastAt,
     healthStage,
+    clientAccess: clientAccess?.[0] ? serializeClientAccess(clientAccess[0]) : null,
   };
 }
 

@@ -11,6 +11,9 @@ import { rotateRefreshToken, signAccessToken } from "../../lib/tokens.js";
 import { HttpError } from "../../utils/httpError.js";
 
 export const register = asyncHandler(async (req, res) => {
+  if (!config.allowPublicRegistration) {
+    throw new HttpError(403, "Public registration is disabled. Contact an administrator.");
+  }
   const result = await registerUser(req.body);
   res.status(201).json(result);
 });

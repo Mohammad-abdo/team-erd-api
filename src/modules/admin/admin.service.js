@@ -1,9 +1,10 @@
 import bcrypt from "bcryptjs";
-import { PlatformRole, TeamRole } from "@prisma/client";
+import { PlatformRole, ProjectMemberRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logAdminAudit } from "../../lib/audit.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
+import { serializeClientAccess, upsertClientProjectAccess } from "../../lib/clientPortal.js";
 import * as teamsService from "../teams/teams.service.js";
 import { addMemberDirect } from "../projects/members.service.js";
 
@@ -114,9 +115,15 @@ export async function getUserDetail(userId) {
         },
         orderBy: { joinedAt: "desc" },
       },
+      clientProjectAccess: true,
     },
   });
   if (!user) throw new HttpError(404, "User not found");
+
+  const clientAccessByProject = new Map(
+    user.clientProjectAccess.map((row) => [row.projectId, serializeClientAccess(row)]),
+  );
+
   return {
     id: user.id,
     name: user.name,
@@ -139,6 +146,7 @@ export async function getUserDetail(userId) {
       healthStage: m.project.healthStage,
       role: m.role,
       joinedAt: m.joinedAt,
+      clientAccess: clientAccessByProject.get(m.project.id) ?? null,
     })),
   };
 }
@@ -178,6 +186,14 @@ export async function updateUser(adminId, userId, input) {
 }
 
 export async function assignUserToTeam(adminId, userId, { teamId, role }) {
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (target?.platformRole === PlatformRole.CLIENT) {
+    throw new HttpError(400, "Client portal users cannot be assigned to teams");
+  }
+
   const member = await teamsService.addTeamMember(adminId, teamId, {
     userId,
     role: role ?? TeamRole.MEMBER,
@@ -189,15 +205,57 @@ export async function removeUserFromTeam(adminId, userId, teamId) {
   await teamsService.removeTeamMember(adminId, teamId, userId);
 }
 
-export async function assignUserToProject(adminId, userId, { projectId, role }) {
+export async function assignUserToProject(adminId, userId, { projectId, role, clientAccess }) {
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (!target) throw new HttpError(404, "User not found");
+
+  const effectiveRole = target.platformRole === PlatformRole.CLIENT
+    ? ProjectMemberRole.VIEWER
+    : (role ?? ProjectMemberRole.EDITOR);
+
   const member = await addMemberDirect({
     projectId,
     userId,
-    role,
+    role: effectiveRole,
     addedById: adminId,
     asAdmin: true,
   });
+
+  if (target.platformRole === PlatformRole.CLIENT) {
+    await upsertClientProjectAccess(userId, projectId, clientAccess ?? {});
+  }
+
   return member;
+}
+
+export async function updateUserProjectClientAccess(adminId, userId, projectId, clientAccess) {
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (target?.platformRole !== PlatformRole.CLIENT) {
+    throw new HttpError(400, "User is not a client portal account");
+  }
+
+  const membership = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+  });
+  if (!membership) throw new HttpError(404, "User is not assigned to this project");
+
+  const row = await upsertClientProjectAccess(userId, projectId, clientAccess);
+
+  await logAdminAudit({
+    userId: adminId,
+    action: "updated_client_access",
+    entityType: "user",
+    entityId: userId,
+    meta: { projectId, clientAccess: serializeClientAccess(row) },
+  });
+
+  return serializeClientAccess(row);
 }
 
 export async function removeUserFromProject(adminId, userId, projectId) {
@@ -215,6 +273,7 @@ export async function removeUserFromProject(adminId, userId, projectId) {
   }
 
   await prisma.projectMember.delete({ where: { id: member.id } });
+  await prisma.clientProjectAccess.deleteMany({ where: { projectId, userId } });
 
   await logAdminAudit({
     userId: adminId,

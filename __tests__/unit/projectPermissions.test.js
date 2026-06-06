@@ -1,5 +1,5 @@
 import { describe, test, expect } from "@jest/globals";
-import { roleAllowsAction } from "../../src/lib/projectPermissions.js";
+import { roleAllowsAction } from "../../src/lib/rolePermissionDefaults.js";
 
 describe("projectPermissions", () => {
   test("leader role allows all actions", () => {
@@ -20,5 +20,18 @@ describe("projectPermissions", () => {
   test("commenter can create comments", () => {
     expect(roleAllowsAction("COMMENTER", "COMMENTS", "CREATE")).toBe(true);
     expect(roleAllowsAction("COMMENTER", "ERD", "EDIT")).toBe(false);
+  });
+
+  test("viewer with API grant pattern — editor defaults cover API mutations", () => {
+    expect(roleAllowsAction("EDITOR", "API", "CREATE")).toBe(true);
+    expect(roleAllowsAction("EDITOR", "API", "DELETE")).toBe(true);
+    expect(roleAllowsAction("VIEWER", "API", "EDIT")).toBe(false);
+  });
+
+  test("tasks permissions follow role presets", () => {
+    expect(roleAllowsAction("EDITOR", "TASKS", "CREATE")).toBe(true);
+    expect(roleAllowsAction("VIEWER", "TASKS", "VIEW")).toBe(true);
+    expect(roleAllowsAction("VIEWER", "TASKS", "CREATE")).toBe(false);
+    expect(roleAllowsAction("COMMENTER", "TASKS", "EDIT")).toBe(false);
   });
 });

@@ -15,7 +15,7 @@ async function uniqueTeamSlug(base) {
   throw new HttpError(500, "Could not allocate team slug");
 }
 
-async function assertTeamManager(userId, teamId) {
+export async function assertTeamManager(userId, teamId) {
   const admin = await isPlatformAdmin(userId);
   if (admin) return { isAdmin: true };
   const member = await prisma.teamMember.findUnique({

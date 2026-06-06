@@ -10,6 +10,8 @@ import { prisma } from "./lib/prisma.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { registerSockets } from "./sockets/index.js";
 import { attachSocketServer } from "./sockets/emit.js";
+import { startWeeklyDigestCron } from "./jobs/weeklyDigestCron.js";
+import { startDriftCheckCron } from "./jobs/driftCheckCron.js";
 
 import authRoutes from "./modules/auth/auth.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
@@ -52,7 +54,7 @@ if (!config.isProd) {
 }
 app.use(
   cors({
-    origin: config.corsOrigin,
+    origin: config.corsOrigin.length === 1 ? config.corsOrigin[0] : config.corsOrigin,
     credentials: true,
   }),
 );
@@ -134,7 +136,12 @@ app.use(errorHandler);
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: config.corsOrigin, methods: ["GET", "POST"] },
+  cors: {
+    origin: config.corsOrigin.length === 1 ? config.corsOrigin[0] : config.corsOrigin,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+  transports: ["polling", "websocket"],
 });
 
 registerSockets(io);
@@ -143,6 +150,8 @@ attachSocketServer(io);
 if (process.env.NODE_ENV !== "test") {
   server.listen(config.port, () => {
     console.log(`DBForge API listening on http://localhost:${config.port}`);
+    startWeeklyDigestCron();
+    startDriftCheckCron();
   });
 }
 

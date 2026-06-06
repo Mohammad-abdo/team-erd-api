@@ -156,6 +156,45 @@ export async function inviteMember({ projectId, invitedById, email, role }) {
   return invitation;
 }
 
+export async function listPendingInvitations(projectId) {
+  return prisma.projectInvitation.findMany({
+    where: {
+      projectId,
+      acceptedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { expiresAt: "asc" },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      expiresAt: true,
+    },
+  });
+}
+
+export async function revokeInvitation({ projectId, invitationId, userId }) {
+  const invitation = await prisma.projectInvitation.findFirst({
+    where: { id: invitationId, projectId, acceptedAt: null },
+  });
+  if (!invitation) {
+    throw new HttpError(404, "Invitation not found");
+  }
+
+  await prisma.projectInvitation.delete({ where: { id: invitation.id } });
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "deleted",
+    entityType: "project_invitation",
+    entityId: invitation.id,
+    oldValues: { email: invitation.email, role: invitation.role },
+  });
+
+  emitToProject(projectId, "members:updated", { at: Date.now() });
+}
+
 export async function updateMemberRole({ projectId, leaderId, targetUserId, role }) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },

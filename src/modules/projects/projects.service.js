@@ -1,4 +1,4 @@
-import { ProjectMemberRole } from "@prisma/client";
+import { PlatformRole, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { slugify } from "../../utils/slug.js";
@@ -60,13 +60,38 @@ function projectAccessWhere(userId, teamId) {
   return { OR: base };
 }
 
+async function resolveProjectListWhere(userId, teamId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (user?.platformRole === PlatformRole.CLIENT) {
+    return { members: { some: { userId } } };
+  }
+  return projectAccessWhere(userId, teamId);
+}
+
 export async function listProjectsForUser(userId, { teamId } = {}) {
+  const where = await resolveProjectListWhere(userId, teamId);
+  const isClient = (await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  }))?.platformRole === PlatformRole.CLIENT;
+
   return prisma.project.findMany({
-    where: projectAccessWhere(userId, teamId),
+    where,
     orderBy: { createdAt: "desc" },
     include: {
       ...projectDashboardInclude(userId),
       teamProjects: { include: { team: { select: { id: true, name: true, slug: true, color: true } } } },
+      ...(isClient
+        ? {
+            clientAccess: {
+              where: { userId },
+              take: 1,
+            },
+          }
+        : {}),
     },
   });
 }
@@ -119,14 +144,28 @@ export async function createProject(userId, input) {
 }
 
 export async function getProjectByIdForUser(projectId, userId) {
+  const where = await resolveProjectListWhere(userId);
+  const isClient = (await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  }))?.platformRole === PlatformRole.CLIENT;
+
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
-      ...projectAccessWhere(userId),
+      ...where,
     },
     include: {
       ...projectDashboardInclude(userId),
       teamProjects: { include: { team: { select: { id: true, name: true, slug: true, color: true } } } },
+      ...(isClient
+        ? {
+            clientAccess: {
+              where: { userId },
+              take: 1,
+            },
+          }
+        : {}),
     },
   });
 

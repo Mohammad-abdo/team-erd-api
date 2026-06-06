@@ -3,13 +3,18 @@ import { HttpError } from "../../utils/httpError.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 import { importErdSchema } from "../import/import.service.js";
+import { diffErdSchemas } from "../../lib/erdSnapshotDiff.js";
 
-async function buildSnapshotPayload(projectId) {
+export async function buildSnapshotPayload(projectId) {
   const [tables, relations] = await Promise.all([
     prisma.erdTable.findMany({
       where: { projectId },
       orderBy: { name: "asc" },
-      include: { columns: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        columns: { orderBy: { sortOrder: "asc" } },
+        indexes: { orderBy: { sortOrder: "asc" } },
+        checkConstraints: { orderBy: { sortOrder: "asc" } },
+      },
     }),
     prisma.erdRelation.findMany({
       where: { projectId },
@@ -40,6 +45,15 @@ async function buildSnapshotPayload(projectId) {
         isUnique: c.isUnique,
         defaultValue: c.defaultValue,
         description: c.description,
+      })),
+      indexes: (t.indexes ?? []).map((idx) => ({
+        name: idx.name,
+        columnNames: idx.columnNames,
+        isUnique: idx.isUnique,
+      })),
+      checkConstraints: (t.checkConstraints ?? []).map((chk) => ({
+        name: chk.name,
+        expression: chk.expression,
       })),
     })),
     relations: relations.map((r) => ({
@@ -150,4 +164,41 @@ export async function deleteSnapshot(projectId, userId, snapshotId) {
     entityId: snapshotId,
     oldValues: { label: row.label },
   });
+}
+
+async function resolveSchemaPayload(projectId, ref) {
+  if (ref === "current") {
+    return buildSnapshotPayload(projectId);
+  }
+  const row = await getSnapshot(projectId, ref);
+  return row.snapshotJson;
+}
+
+async function resolveSchemaLabel(projectId, ref) {
+  if (ref === "current") {
+    return "Current schema";
+  }
+  const row = await getSnapshot(projectId, ref);
+  return row.label;
+}
+
+export async function diffSnapshots(projectId, baseRef, targetRef) {
+  if (baseRef === targetRef) {
+    throw new HttpError(400, "Choose two different schemas to compare");
+  }
+
+  const [baseSchema, targetSchema, baseLabel, targetLabel] = await Promise.all([
+    resolveSchemaPayload(projectId, baseRef),
+    resolveSchemaPayload(projectId, targetRef),
+    resolveSchemaLabel(projectId, baseRef),
+    resolveSchemaLabel(projectId, targetRef),
+  ]);
+
+  const diff = diffErdSchemas(baseSchema, targetSchema);
+
+  return {
+    base: { ref: baseRef, label: baseLabel },
+    target: { ref: targetRef, label: targetLabel },
+    diff,
+  };
 }

@@ -1,5 +1,6 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import * as teamsService from "./teams.service.js";
+import * as teamDigestService from "./teamDigest.service.js";
 
 export const list = asyncHandler(async (req, res) => {
   const teams = await teamsService.listTeamsForUser(req.user.sub);
@@ -44,4 +45,9 @@ export const assignProject = asyncHandler(async (req, res) => {
 export const unassignProject = asyncHandler(async (req, res) => {
   await teamsService.unassignProjectFromTeam(req.user.sub, req.params.teamId, req.params.projectId);
   res.status(204).end();
+});
+
+export const sendWeeklyDigest = asyncHandler(async (req, res) => {
+  const result = await teamDigestService.sendTeamWeeklyDigest(req.user.sub, req.params.teamId);
+  res.json(result);
 });

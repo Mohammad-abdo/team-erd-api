@@ -1,3 +1,5 @@
+import { dispatchWebhooksForSocket } from "../lib/webhooks.js";
+
 /** @type {import("socket.io").Server | null} */
 let ioRef = null;
 

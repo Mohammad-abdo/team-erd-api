@@ -69,6 +69,95 @@ async function assertCanRate(reviewerId, targetUserId, teamId) {
   if (!targetMember) throw new HttpError(400, "User is not in this team");
 }
 
+function serializeProjectTask(task) {
+  const now = new Date();
+  const isOverdue = task.dueDate
+    && task.status !== TaskStatus.DONE
+    && new Date(task.dueDate) < now;
+
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    status: task.status,
+    priority: task.priority,
+    progress: task.progress,
+    dueDate: task.dueDate,
+    completedAt: task.completedAt,
+    updatedAt: task.updatedAt,
+    isOverdue: Boolean(isOverdue),
+    project: task.project,
+    recentProgress: (task.progressLogs ?? []).map((log) => ({
+      id: log.id,
+      progress: log.progress,
+      note: log.note,
+      logDate: log.logDate,
+      loggedAt: log.loggedAt,
+    })),
+  };
+}
+
+function buildMemberWorkReport({
+  user,
+  projects,
+  stats,
+  projectTasks,
+  dailyTasks,
+  progressLogs,
+  ratings,
+  reports,
+  activity,
+  activityTotal,
+  reportsTotal,
+  weekAgo,
+  today,
+}) {
+  const projectTasksDone = projectTasks.filter((t) => t.status === TaskStatus.DONE).length;
+  const projectTasksActive = projectTasks.filter((t) => t.status !== TaskStatus.DONE).length;
+  const projectTasksOverdue = projectTasks.filter((t) => t.isOverdue).length;
+  const dailyTasksTotal = Object.values(stats.dailyTasksWeek ?? {}).reduce((a, b) => a + b, 0);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    member: { id: user.id, name: user.name, email: user.email },
+    period: {
+      from: weekAgo.toISOString(),
+      to: today.toISOString(),
+      label: "Last 7 days",
+    },
+    summary: {
+      projects: projects.length,
+      projectTasksTotal: projectTasks.length,
+      projectTasksDone,
+      projectTasksActive,
+      projectTasksOverdue,
+      dailyTasksWeek: dailyTasksTotal,
+      dailyTasksPendingToday: stats.dailyTasksPendingToday,
+      progressLogsCount: progressLogs.length,
+      avgRating: stats.ratingsAvg,
+      ratingsCount: stats.ratingsCount,
+      standupReports: reportsTotal,
+      activityEvents: activityTotal,
+    },
+    taskBreakdown: stats.projectTasks,
+    dailyTaskBreakdown: stats.dailyTasksWeek,
+    projects: projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      role: p.role,
+      healthStage: p.healthStage,
+      tasksAssigned: projectTasks.filter((t) => t.project?.id === p.id).length,
+    })),
+    highlights: {
+      recentActivity: activity.slice(0, 15),
+      recentRatings: ratings.slice(0, 5),
+      recentStandups: reports.slice(0, 5),
+      recentProgress: progressLogs.slice(0, 10),
+    },
+  };
+}
+
 export async function getMemberProfile(viewerId, targetUserId) {
   const access = await assertCanViewProfile(viewerId, targetUserId);
   const user = await enrichUserProfile(targetUserId);
@@ -78,6 +167,9 @@ export async function getMemberProfile(viewerId, targetUserId) {
   const weekAgo = new Date(today);
   weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
 
+  const twoWeeksAgo = new Date(today);
+  twoWeeksAgo.setUTCDate(twoWeeksAgo.getUTCDate() - 14);
+
   const [
     projectMemberships,
     taskStats,
@@ -86,6 +178,11 @@ export async function getMemberProfile(viewerId, targetUserId) {
     reports,
     recentActivity,
     dailyToday,
+    projectTasks,
+    dailyTasks,
+    progressLogs,
+    reportsTotal,
+    activityTotal,
   ] = await Promise.all([
     prisma.projectMember.findMany({
       where: { userId: targetUserId },
@@ -149,6 +246,44 @@ export async function getMemberProfile(viewerId, targetUserId) {
     prisma.dailyTask.count({
       where: { assigneeId: targetUserId, taskDate: today, status: { not: TaskStatus.DONE } },
     }),
+    prisma.projectTask.findMany({
+      where: { assignees: { some: { userId: targetUserId } } },
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { updatedAt: "desc" }],
+      take: 100,
+      include: {
+        project: { select: { id: true, name: true, slug: true } },
+        progressLogs: {
+          where: { userId: targetUserId },
+          orderBy: { loggedAt: "desc" },
+          take: 3,
+        },
+      },
+    }),
+    prisma.dailyTask.findMany({
+      where: { assigneeId: targetUserId, taskDate: { gte: twoWeeksAgo } },
+      orderBy: [{ taskDate: "desc" }, { createdAt: "desc" }],
+      take: 60,
+      include: {
+        team: { select: { id: true, name: true, color: true } },
+      },
+    }),
+    prisma.taskProgressLog.findMany({
+      where: { userId: targetUserId },
+      orderBy: { loggedAt: "desc" },
+      take: 40,
+      include: {
+        task: {
+          select: {
+            id: true,
+            title: true,
+            projectId: true,
+            project: { select: { id: true, name: true, slug: true } },
+          },
+        },
+      },
+    }),
+    prisma.dailyReport.count({ where: { userId: targetUserId } }),
+    prisma.activityLog.count({ where: { userId: targetUserId } }),
   ]);
 
   const ratingAgg = await prisma.memberRating.aggregate({
@@ -205,40 +340,88 @@ export async function getMemberProfile(viewerId, targetUserId) {
         ? user.teams ?? []
         : [];
 
+  const serializedProjectTasks = projectTasks.map(serializeProjectTask);
+  const serializedDailyTasks = dailyTasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    status: t.status,
+    priority: t.priority,
+    taskDate: t.taskDate,
+    source: t.source,
+    completedAt: t.completedAt,
+    team: t.team,
+  }));
+  const serializedProgressLogs = progressLogs.map((log) => ({
+    id: log.id,
+    progress: log.progress,
+    note: log.note,
+    logDate: log.logDate,
+    loggedAt: log.loggedAt,
+    task: log.task,
+  }));
+
+  const statsPayload = {
+    projectTasks: projectTasksByStatus,
+    dailyTasksWeek: dailyTasksByStatus,
+    dailyTasksPendingToday: dailyToday,
+    ratingsAvg: ratingAgg._avg.score ? Math.round(ratingAgg._avg.score * 10) / 10 : null,
+    ratingsCount: ratingAgg._count._all,
+    reportsCount: reportsTotal,
+    activityTotal,
+  };
+
+  const reportsPayload = reports.map((r) => ({
+    id: r.id,
+    scope: r.scope,
+    reportDate: r.reportDate,
+    summary: r.summary,
+    tasksDone: r.tasksDone,
+    blockers: r.blockers,
+    nextPlan: r.nextPlan,
+    hoursWorked: r.hoursWorked,
+    mood: r.mood,
+    createdAt: r.createdAt,
+    team: r.team,
+    project: r.project,
+  }));
+
+  const ratingsPayload = ratings.map((r) => ({
+    id: r.id,
+    score: r.score,
+    comment: r.comment,
+    createdAt: r.createdAt,
+    reviewer: r.reviewer,
+    team: r.team,
+    project: r.project,
+  }));
+
+  const workReport = buildMemberWorkReport({
+    user,
+    projects,
+    stats: statsPayload,
+    projectTasks: serializedProjectTasks,
+    dailyTasks: serializedDailyTasks,
+    progressLogs: serializedProgressLogs,
+    ratings: ratingsPayload,
+    reports: reportsPayload,
+    activity: recentActivity,
+    activityTotal,
+    reportsTotal,
+    weekAgo,
+    today,
+  });
+
   return {
     user,
     projects,
-    stats: {
-      projectTasks: projectTasksByStatus,
-      dailyTasksWeek: dailyTasksByStatus,
-      dailyTasksPendingToday: dailyToday,
-      ratingsAvg: ratingAgg._avg.score ? Math.round(ratingAgg._avg.score * 10) / 10 : null,
-      ratingsCount: ratingAgg._count._all,
-      reportsCount: reports.length,
-    },
-    ratings: ratings.map((r) => ({
-      id: r.id,
-      score: r.score,
-      comment: r.comment,
-      createdAt: r.createdAt,
-      reviewer: r.reviewer,
-      team: r.team,
-      project: r.project,
-    })),
-    reports: reports.map((r) => ({
-      id: r.id,
-      scope: r.scope,
-      reportDate: r.reportDate,
-      summary: r.summary,
-      tasksDone: r.tasksDone,
-      blockers: r.blockers,
-      nextPlan: r.nextPlan,
-      hoursWorked: r.hoursWorked,
-      mood: r.mood,
-      createdAt: r.createdAt,
-      team: r.team,
-      project: r.project,
-    })),
+    stats: statsPayload,
+    projectTasks: serializedProjectTasks,
+    dailyTasks: serializedDailyTasks,
+    progressLogs: serializedProgressLogs,
+    workReport,
+    ratings: ratingsPayload,
+    reports: reportsPayload,
     activity: recentActivity,
     permissions: {
       isSelf: access.isSelf,

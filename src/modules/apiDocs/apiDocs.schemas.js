@@ -40,3 +40,31 @@ export const createResponseSchema = z.object({
 });
 
 export const updateResponseSchema = createResponseSchema.partial();
+
+export const setRouteErdLinksSchema = z.object({
+  erdTableIds: z.array(z.string().min(1)).max(50),
+});
+
+const environmentSchema = z.object({
+  id: z.string().min(1).max(50),
+  name: z.string().min(1).max(80),
+  baseUrl: z.string().url().max(500),
+  authToken: z.string().max(8000).optional(),
+});
+
+export const saveTestSettingsSchema = z.object({
+  activeEnvironment: z.string().min(1).max(50).optional(),
+  environments: z.array(environmentSchema).min(1).max(10).optional(),
+  baseUrl: z.string().url().max(500).optional(),
+  authToken: z.string().max(8000).optional(),
+  headers: z
+    .array(
+      z.object({
+        key: z.string().max(200),
+        value: z.string().max(2000),
+      }),
+    )
+    .max(50)
+    .optional(),
+  body: z.string().max(50000).optional(),
+});

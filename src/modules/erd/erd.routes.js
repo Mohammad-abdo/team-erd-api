@@ -14,10 +14,12 @@ import {
   updateColumnSchema,
   createRelationSchema,
   updateRelationSchema,
+  createIndexSchema,
+  createCheckConstraintSchema,
 } from "./erd.schemas.js";
 import * as erdController from "./erd.controller.js";
 import * as snapshotsController from "./erdSnapshots.controller.js";
-import { createSnapshotSchema } from "./erdSnapshots.schemas.js";
+import { createSnapshotSchema, diffSnapshotsQuerySchema } from "./erdSnapshots.schemas.js";
 
 const r = Router({ mergeParams: true });
 
@@ -48,6 +50,27 @@ r.put(
 );
 r.delete("/tables/:tableId/columns/:columnId", erdDelete, erdController.deleteColumn);
 
+r.post(
+  "/tables/:tableId/indexes",
+  erdCreate,
+  validate(createIndexSchema),
+  erdController.createTableIndex,
+);
+r.delete("/tables/:tableId/indexes/:indexId", erdDelete, erdController.deleteTableIndex);
+
+r.post(
+  "/tables/:tableId/check-constraints",
+  erdCreate,
+  validate(createCheckConstraintSchema),
+  erdController.createCheckConstraint,
+);
+r.delete(
+  "/tables/:tableId/check-constraints/:constraintId",
+  erdDelete,
+  erdController.deleteCheckConstraint,
+);
+
+r.get("/validation", erdView, erdController.getValidation);
 r.get("/relations", erdView, erdController.listRelations);
 r.post("/relations", erdCreate, validate(createRelationSchema), erdController.createRelation);
 r.put(
@@ -59,6 +82,12 @@ r.put(
 r.delete("/relations/:relationId", erdDelete, erdController.deleteRelation);
 
 r.get("/snapshots", erdView, snapshotsController.list);
+r.get(
+  "/snapshots/diff",
+  erdView,
+  validate(diffSnapshotsQuerySchema, "query"),
+  snapshotsController.diff,
+);
 r.post("/snapshots", erdEdit, validate(createSnapshotSchema), snapshotsController.create);
 r.get("/snapshots/:snapshotId", erdView, snapshotsController.getOne);
 r.post("/snapshots/:snapshotId/restore", erdEdit, snapshotsController.restore);

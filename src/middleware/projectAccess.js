@@ -1,9 +1,11 @@
-import { PermissionAction, PermissionResource, ProjectMemberRole } from "@prisma/client";
+import { PermissionAction, PermissionResource } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { HttpError } from "../utils/httpError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { hasMinRole } from "../lib/permissions.js";
 import { hasProjectPermission } from "../lib/projectPermissions.js";
+import { resolveProjectMembership } from "../lib/projectMembership.js";
+import { attachClientAccessToRequest, enforceClientPermission } from "./clientPortal.js";
 
 /**
  * Loads `req.project` (without full members array) and `req.projectMember` for the current user.
@@ -15,42 +17,20 @@ export const loadProjectMember = asyncHandler(async (req, _res, next) => {
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    include: {
-      members: {
-        where: { userId },
-        take: 1,
-      },
-    },
   });
 
   if (!project) {
     throw new HttpError(404, "Project not found");
   }
 
-  let member = project.members[0];
-  if (!member) {
-    const teamAccess = await prisma.teamProject.findFirst({
-      where: {
-        projectId,
-        team: { members: { some: { userId } } },
-      },
-    });
-    if (!teamAccess) {
-      throw new HttpError(403, "Not a project member");
-    }
-    member = {
-      id: `team-${teamAccess.teamId}`,
-      projectId,
-      userId,
-      role: ProjectMemberRole.VIEWER,
-      invitedById: null,
-      joinedAt: teamAccess.assignedAt,
-    };
+  const resolved = await resolveProjectMembership(projectId, userId);
+  if (!resolved) {
+    throw new HttpError(403, "Not a project member");
   }
 
-  const { members, ...rest } = project;
-  req.project = rest;
-  req.projectMember = member;
+  req.project = project;
+  req.projectMember = resolved.member;
+  await attachClientAccessToRequest(req, projectId, userId);
   next();
 });
 
@@ -78,6 +58,7 @@ export function requireProjectLeader(req, _res, next) {
  * @param {import("@prisma/client").PermissionAction} action
  */
 export function requireProjectPermission(resource, action) {
+  const clientGuard = enforceClientPermission(resource, action);
   return asyncHandler(async (req, _res, next) => {
     const allowed = await hasProjectPermission(
       req.user.sub,
@@ -89,7 +70,7 @@ export function requireProjectPermission(resource, action) {
     if (!allowed) {
       return next(new HttpError(403, "Insufficient permissions"));
     }
-    next();
+    clientGuard(req, _res, next);
   });
 }
 

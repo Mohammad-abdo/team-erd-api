@@ -7,6 +7,7 @@ import {
   assignTeamSchema,
   createUserSchema,
   testEmailSchema,
+  updateClientAccessSchema,
   updateUserSchema,
 } from "./admin.schemas.js";
 import * as adminController from "./admin.controller.js";
@@ -23,6 +24,11 @@ r.patch("/users/:userId", validate(updateUserSchema), adminController.updateUser
 r.post("/users/:userId/teams", validate(assignTeamSchema), adminController.assignTeam);
 r.delete("/users/:userId/teams/:teamId", adminController.removeTeam);
 r.post("/users/:userId/projects", validate(assignProjectSchema), adminController.assignProject);
+r.patch(
+  "/users/:userId/projects/:projectId/client-access",
+  validate(updateClientAccessSchema),
+  adminController.updateClientAccess,
+);
 r.delete("/users/:userId/projects/:projectId", adminController.removeProject);
 r.get("/projects", adminController.listProjects);
 r.get("/audit", adminController.auditLog);

@@ -1,9 +1,32 @@
+import fs from "fs";
 import { CommentableType, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 import { hasMinRole } from "../../lib/permissions.js";
+import { absoluteStoragePath, relativeStoragePath } from "../../lib/commentUpload.js";
+
+const userSelect = { id: true, name: true, email: true, avatar: true };
+const attachmentSelect = {
+  id: true,
+  fileName: true,
+  mimeType: true,
+  sizeBytes: true,
+  createdAt: true,
+};
+
+const commentInclude = {
+  user: { select: userSelect },
+  attachments: { select: attachmentSelect, orderBy: { createdAt: "asc" } },
+  replies: {
+    orderBy: { createdAt: "asc" },
+    include: {
+      user: { select: userSelect },
+      attachments: { select: attachmentSelect, orderBy: { createdAt: "asc" } },
+    },
+  },
+};
 
 async function assertCommentTarget(projectId, type, id) {
   if (type === CommentableType.ERD_TABLE) {
@@ -41,19 +64,11 @@ export async function listComments(projectId, query) {
   return prisma.comment.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    include: {
-      user: { select: { id: true, name: true, email: true, avatar: true } },
-      replies: {
-        orderBy: { createdAt: "asc" },
-        include: {
-          user: { select: { id: true, name: true, email: true, avatar: true } },
-        },
-      },
-    },
+    include: commentInclude,
   });
 }
 
-export async function createComment(projectId, userId, memberRole, input) {
+export async function createComment(projectId, userId, memberRole, input, files = []) {
   if (!hasMinRole(memberRole, ProjectMemberRole.COMMENTER)) {
     throw new HttpError(403, "Your role cannot create comments");
   }
@@ -77,10 +92,20 @@ export async function createComment(projectId, userId, memberRole, input) {
       userId,
       body: input.body.trim(),
       parentId: input.parentId ?? null,
+      ...(files.length
+        ? {
+            attachments: {
+              create: files.map((f) => ({
+                fileName: f.originalname || f.filename,
+                mimeType: f.mimetype || "application/octet-stream",
+                sizeBytes: f.size,
+                storagePath: relativeStoragePath(projectId, f.filename),
+              })),
+            },
+          }
+        : {}),
     },
-    include: {
-      user: { select: { id: true, name: true, email: true, avatar: true } },
-    },
+    include: commentInclude,
   });
 
   await logActivity({
@@ -133,4 +158,26 @@ export async function resolveComment(projectId, userId, memberRole, commentId) {
   emitToProject(projectId, "comments:updated", { at: Date.now() });
 
   return updated;
+}
+
+export async function getCommentAttachment(projectId, attachmentId) {
+  const row = await prisma.commentAttachment.findFirst({
+    where: {
+      id: attachmentId,
+      comment: { projectId },
+    },
+    include: {
+      comment: { select: { projectId: true } },
+    },
+  });
+  if (!row) {
+    throw new HttpError(404, "Attachment not found");
+  }
+
+  const abs = absoluteStoragePath(row.storagePath);
+  if (!fs.existsSync(abs)) {
+    throw new HttpError(404, "Attachment file missing on server");
+  }
+
+  return { row, abs };
 }

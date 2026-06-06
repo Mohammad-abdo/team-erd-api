@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import { driftSummaryForHealth } from "../import/driftReports.service.js";
 
 export async function getPublicProjectBySlug(slug) {
   const project = await prisma.project.findFirst({
@@ -51,6 +52,30 @@ export async function getPublicProjectBySlug(slug) {
 
   const apiRouteCount = project.apiGroups.reduce((n, g) => n + g.routes.length, 0);
 
+  const latestDrift = await prisma.projectDriftReport.findFirst({
+    where: { projectId: project.id },
+    orderBy: { createdAt: "desc" },
+    select: {
+      dialect: true,
+      databaseLabel: true,
+      inSync: true,
+      issueCount: true,
+      createdAt: true,
+    },
+  });
+
+  const schemaStatus = driftSummaryForHealth(
+    latestDrift
+      ? {
+          inSync: latestDrift.inSync,
+          issueCount: latestDrift.issueCount,
+          checkedAt: latestDrift.createdAt,
+          databaseLabel: latestDrift.databaseLabel,
+          dialect: latestDrift.dialect,
+        }
+      : null,
+  );
+
   return {
     project: {
       id: project.id,
@@ -79,6 +104,7 @@ export async function getPublicProjectBySlug(slug) {
         name: g.name,
         routes: g.routes,
       })),
+      schemaStatus,
     },
   };
 }

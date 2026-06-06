@@ -37,3 +37,16 @@ export const createRelationSchema = z.object({
 });
 
 export const updateRelationSchema = createRelationSchema.partial();
+
+export const createIndexSchema = z.object({
+  name: z.string().max(120).nullable().optional(),
+  columnNames: z.array(z.string().min(1).max(200)).min(1).max(16),
+  isUnique: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+export const createCheckConstraintSchema = z.object({
+  name: z.string().max(120).nullable().optional(),
+  expression: z.string().min(1).max(2000),
+  sortOrder: z.number().int().optional(),
+});

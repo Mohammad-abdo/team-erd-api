@@ -1,6 +1,15 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import * as snapshotsService from "./erdSnapshots.service.js";
 
+export const diff = asyncHandler(async (req, res) => {
+  const result = await snapshotsService.diffSnapshots(
+    req.params.projectId,
+    req.query.base,
+    req.query.target,
+  );
+  res.json(result);
+});
+
 export const list = asyncHandler(async (req, res) => {
   const snapshots = await snapshotsService.listSnapshots(req.params.projectId);
   res.json({

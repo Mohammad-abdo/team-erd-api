@@ -1,5 +1,7 @@
 import { config } from "../../config/index.js";
+import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import * as apiDocsService from "../apiDocs/apiDocs.service.js";
 
 const SYSTEM_PROMPT = `You are a database architect. Given an app description, output ONLY valid JSON:
 {
@@ -271,4 +273,283 @@ export async function generateSchemaFromDescription(description) {
   }
 
   return generateHeuristic(trimmed);
+}
+
+const DRIFT_EXPLAIN_SYSTEM = `You are a senior database engineer explaining schema drift to a developer.
+Given a drift report and optional migration SQL, write a concise plain-language summary (markdown OK).
+Cover: what differs, risk level, recommended order to apply changes, and what to verify after migration.
+Do not invent issues not in the report. Max 400 words.`;
+
+export function explainDriftHeuristic(report) {
+  const summary = report.summary ?? {};
+  if (summary.inSync) {
+    return {
+      explanation: "Your whiteboard schema matches the live database. No migration is required.",
+      source: "heuristic",
+    };
+  }
+
+  const issues = report.issues ?? [];
+  const dbLabel = report.meta?.schema
+    ? `${report.meta.database}.${report.meta.schema}`
+    : report.meta?.database ?? "the database";
+  const lines = [
+    `**Overview:** ${summary.issueCount ?? issues.length} difference(s) between your ERD and ${dbLabel}.`,
+  ];
+
+  const missing = issues.filter((i) => i.type === "missing_in_db");
+  const extra = issues.filter((i) => i.type === "extra_in_db");
+  const modified = issues.filter(
+    (i) => i.type !== "missing_in_db" && i.type !== "extra_in_db",
+  );
+
+  if (missing.length) {
+    lines.push(
+      `\n**Missing in database (${missing.length}):** Objects defined on the whiteboard but absent in the live DB. Migration SQL will CREATE tables/columns or add constraints.`,
+    );
+    missing.slice(0, 6).forEach((i) => lines.push(`- ${i.message}`));
+    if (missing.length > 6) lines.push(`- …and ${missing.length - 6} more`);
+  }
+
+  if (modified.length) {
+    lines.push(
+      `\n**Modified (${modified.length}):** Type, nullability, or constraint differences. Review each ALTER carefully — data loss is possible.`,
+    );
+    modified.slice(0, 4).forEach((i) => lines.push(`- ${i.message}`));
+  }
+
+  if (extra.length) {
+    lines.push(
+      `\n**Extra in database (${extra.length}):** Present in the live DB but not in your ERD. Optional DROP statements may appear commented at the bottom of the migration — do not run without review.`,
+    );
+  }
+
+  if (report.migration?.statementCount) {
+    lines.push(
+      `\n**Suggested migration:** ${report.migration.statementCount} SQL statement(s) for ${report.migration.dialect ?? report.meta?.dialect ?? "SQL"}. Test on staging first, then apply during a maintenance window.`,
+    );
+  }
+
+  lines.push("\n**Next steps:** Back up the database, run the migration on a copy, verify app queries, then update production.");
+
+  return { explanation: lines.join("\n"), source: "heuristic" };
+}
+
+async function explainDriftWithOpenAI(report) {
+  const payload = {
+    summary: report.summary,
+    meta: report.meta,
+    issues: (report.issues ?? []).slice(0, 25).map((i) => ({
+      type: i.type,
+      message: i.message,
+      table: i.table,
+      column: i.column,
+    })),
+    migrationPreview: report.migration?.sql?.slice(0, 6000) ?? null,
+    statementCount: report.migration?.statementCount ?? 0,
+  };
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openai.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.openai.model,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: DRIFT_EXPLAIN_SYSTEM },
+        { role: "user", content: JSON.stringify(payload) },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new HttpError(502, `AI provider error: ${err.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) {
+    throw new HttpError(502, "Empty AI response");
+  }
+
+  return { explanation: content, source: "openai" };
+}
+
+export async function explainDriftReport(report) {
+  if (!report?.summary) {
+    throw new HttpError(400, "Drift report summary is required");
+  }
+
+  if (config.openai.apiKey && !report.summary.inSync) {
+    try {
+      return await explainDriftWithOpenAI(report);
+    } catch (err) {
+      if (err instanceof HttpError && err.status !== 502) throw err;
+      return explainDriftHeuristic(report);
+    }
+  }
+
+  return explainDriftHeuristic(report);
+}
+
+const API_SUGGEST_SYSTEM = `You suggest REST API routes from an ERD. Output ONLY valid JSON:
+{
+  "group": { "name": "Resource API", "prefix": "/api/v1", "description": "optional" },
+  "routes": [
+    { "method": "GET", "path": "/users", "summary": "List users", "erdTableName": "users" }
+  ]
+}
+Use standard REST verbs (GET, POST, PUT, PATCH, DELETE). Paths are relative to group prefix. erdTableName must match an input table name.`;
+
+const CRUD_METHODS = [
+  { method: "GET", suffix: "", summary: (label) => `List ${label}` },
+  { method: "GET", suffix: "/:id", summary: (label) => `Get ${label} by ID` },
+  { method: "POST", suffix: "", summary: (label) => `Create ${label}` },
+  { method: "PUT", suffix: "/:id", summary: (label) => `Update ${label}` },
+  { method: "DELETE", suffix: "/:id", summary: (label) => `Delete ${label}` },
+];
+
+export function suggestApiRoutesHeuristic(tables) {
+  const routes = [];
+  for (const table of tables) {
+    const label = table.label ?? table.name;
+    const base = `/${table.name}`;
+    for (const tpl of CRUD_METHODS) {
+      routes.push({
+        method: tpl.method,
+        path: `${base}${tpl.suffix}`,
+        summary: tpl.summary(label),
+        erdTableId: table.id,
+        erdTableName: table.name,
+      });
+    }
+  }
+
+  return {
+    group: {
+      name: "ERD CRUD (suggested)",
+      prefix: "/api/v1",
+      description: "Auto-generated REST routes from whiteboard tables",
+    },
+    routes,
+    source: "heuristic",
+  };
+}
+
+async function suggestApiRoutesWithOpenAI(tables) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openai.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.openai.model,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: API_SUGGEST_SYSTEM },
+        {
+          role: "user",
+          content: JSON.stringify({
+            tables: tables.map((t) => ({
+              name: t.name,
+              label: t.label,
+              columns: (t.columns ?? []).slice(0, 12).map((c) => c.name),
+            })),
+          }),
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new HttpError(502, `AI provider error: ${err.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new HttpError(502, "Empty AI response");
+  }
+
+  const parsed = JSON.parse(content);
+  const nameToId = new Map(tables.map((t) => [t.name, t.id]));
+  const routes = (parsed.routes ?? []).map((r) => ({
+    method: String(r.method ?? "GET").toUpperCase(),
+    path: String(r.path ?? "/").trim(),
+    summary: r.summary?.trim() ?? null,
+    erdTableId: nameToId.get(r.erdTableName) ?? null,
+    erdTableName: r.erdTableName ?? null,
+  }));
+
+  return {
+    group: {
+      name: parsed.group?.name?.trim() || "AI suggested routes",
+      prefix: parsed.group?.prefix?.trim() || "/api/v1",
+      description: parsed.group?.description?.trim() ?? null,
+    },
+    routes,
+    source: "openai",
+  };
+}
+
+export async function suggestApiRoutesFromErd(projectId) {
+  const tables = await prisma.erdTable.findMany({
+    where: { projectId },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      label: true,
+      columns: { select: { name: true }, take: 20 },
+    },
+  });
+
+  if (!tables.length) {
+    throw new HttpError(400, "Add ERD tables on the whiteboard first");
+  }
+
+  if (config.openai.apiKey) {
+    try {
+      return await suggestApiRoutesWithOpenAI(tables);
+    } catch {
+      return suggestApiRoutesHeuristic(tables);
+    }
+  }
+
+  return suggestApiRoutesHeuristic(tables);
+}
+
+export async function applySuggestedApiRoutes(projectId, userId, payload) {
+  if (!payload?.group?.name || !payload.routes?.length) {
+    throw new HttpError(400, "Suggested group and routes are required");
+  }
+
+  const group = await apiDocsService.createGroup(projectId, userId, payload.group);
+  let routesCreated = 0;
+
+  for (const r of payload.routes) {
+    const route = await apiDocsService.createRoute(projectId, userId, group.id, {
+      method: r.method,
+      path: r.path,
+      summary: r.summary,
+      authRequired: true,
+    });
+    if (r.erdTableId) {
+      await apiDocsService.setRouteErdLinks(projectId, userId, route.id, [r.erdTableId]);
+    }
+    routesCreated += 1;
+  }
+
+  return {
+    groupId: group.id,
+    routesCreated,
+    source: payload.source ?? "heuristic",
+  };
 }

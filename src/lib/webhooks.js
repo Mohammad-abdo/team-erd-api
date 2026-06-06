@@ -1,5 +1,6 @@
 import { createHmac } from "crypto";
 import { prisma } from "./prisma.js";
+import { assertSafeWebhookUrl } from "./ssrfGuard.js";
 
 const SOCKET_TO_WEBHOOK = {
   "erd:updated": "erd.updated",
@@ -20,6 +21,8 @@ export const WEBHOOK_EVENTS = [
 ];
 
 async function deliverWebhook(hook, event, payload) {
+  await assertSafeWebhookUrl(hook.url);
+
   const body = JSON.stringify({
     event,
     projectId: hook.projectId,

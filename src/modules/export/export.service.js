@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
+import { generatePrismaSchema, generateTypeOrmEntities } from "../../lib/erdCodeExport.js";
 
 /* ── helpers ── */
 function prismaParamLocationToOpenApi(loc) {
@@ -11,10 +12,41 @@ function escapeIdent(name) {
   return `"${String(name).replace(/"/g, '""')}"`;
 }
 
+function parseColumnNamesJson(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((c) => typeof c === "string" && c.trim() !== "");
+}
+
+async function loadErdExportData(projectId) {
+  const [tables, relations] = await Promise.all([
+    prisma.erdTable.findMany({
+      where: { projectId },
+      orderBy: { name: "asc" },
+      include: { columns: { orderBy: { sortOrder: "asc" } } },
+    }),
+    prisma.erdRelation.findMany({ where: { projectId } }),
+  ]);
+  return { tables, relations };
+}
+
+export async function exportErdPrisma(projectId) {
+  const { tables, relations } = await loadErdExportData(projectId);
+  return generatePrismaSchema(tables, relations);
+}
+
+export async function exportErdTypeOrm(projectId) {
+  const { tables, relations } = await loadErdExportData(projectId);
+  return generateTypeOrmEntities(tables, relations);
+}
+
 export async function exportErdSql(projectId) {
   const tables = await prisma.erdTable.findMany({
     where: { projectId },
-    include: { columns: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      columns: { orderBy: { sortOrder: "asc" } },
+      indexes: { orderBy: { sortOrder: "asc" } },
+      checkConstraints: { orderBy: { sortOrder: "asc" } },
+    },
     orderBy: { name: "asc" },
   });
 
@@ -30,13 +62,30 @@ export async function exportErdSql(projectId) {
       if (c.isUnique && !c.isPk) {
         parts.push("UNIQUE");
       }
+      if (c.defaultValue != null && c.defaultValue !== "") {
+        parts.push(`DEFAULT ${c.defaultValue}`);
+      }
       return `  ${parts.join(" ")}`;
     });
+    for (const chk of t.checkConstraints ?? []) {
+      const cName = escapeIdent(chk.name || `chk_${t.name}`);
+      colDefs.push(`  CONSTRAINT ${cName} CHECK (${chk.expression})`);
+    }
     const pkCols = t.columns.filter((c) => c.isPk).map((c) => escapeIdent(c.name));
     if (pkCols.length) {
       colDefs.push(`  PRIMARY KEY (${pkCols.join(", ")})`);
     }
     lines.push(colDefs.length ? `${colDefs.join(",\n")}\n);` : `);`);
+
+    for (const idx of t.indexes ?? []) {
+      const cols = parseColumnNamesJson(idx.columnNames).map((c) => escapeIdent(c));
+      if (!cols.length) continue;
+      const idxName = escapeIdent(idx.name || `idx_${t.name}`);
+      const unique = idx.isUnique ? "UNIQUE " : "";
+      lines.push(
+        `CREATE ${unique}INDEX ${idxName} ON ${tableName} (${cols.join(", ")});`,
+      );
+    }
     lines.push("");
   }
 
@@ -48,7 +97,11 @@ export async function exportErdJson(projectId) {
     prisma.erdTable.findMany({
       where: { projectId },
       orderBy: { name: "asc" },
-      include: { columns: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        columns: { orderBy: { sortOrder: "asc" } },
+        indexes: { orderBy: { sortOrder: "asc" } },
+        checkConstraints: { orderBy: { sortOrder: "asc" } },
+      },
     }),
     prisma.erdRelation.findMany({ where: { projectId } }),
     prisma.apiGroup.findMany({
@@ -267,7 +320,11 @@ export async function exportMarkdown(projectId) {
   const tables = await prisma.erdTable.findMany({
     where: { projectId },
     orderBy: { name: "asc" },
-    include: { columns: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      columns: { orderBy: { sortOrder: "asc" } },
+      indexes: { orderBy: { sortOrder: "asc" } },
+      checkConstraints: { orderBy: { sortOrder: "asc" } },
+    },
   });
 
   const groups = await prisma.apiGroup.findMany({
@@ -306,6 +363,21 @@ export async function exportMarkdown(projectId) {
         .filter(Boolean)
         .join(", ");
       lines.push(`| ${c.name} | ${c.dataType} | ${flags} |`);
+    }
+    if (t.indexes?.length) {
+      lines.push("");
+      lines.push("**Indexes**");
+      for (const idx of t.indexes) {
+        const cols = parseColumnNamesJson(idx.columnNames).join(", ");
+        lines.push(`- ${idx.isUnique ? "UNIQUE " : ""}\`${idx.name}\` (${cols})`);
+      }
+    }
+    if (t.checkConstraints?.length) {
+      lines.push("");
+      lines.push("**Check constraints**");
+      for (const chk of t.checkConstraints) {
+        lines.push(`- \`${chk.name}\`: \`${chk.expression}\``);
+      }
     }
   }
 

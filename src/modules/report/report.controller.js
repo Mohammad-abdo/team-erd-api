@@ -3,6 +3,7 @@ import {
   listPortfolioReportSummaries,
 } from './report.service.js'
 import { asyncHandler } from '../../utils/asyncHandler.js'
+import { sanitizeReportForClient } from '../../lib/clientPortal.js'
 import { z } from 'zod'
 
 const querySchema = z.object({
@@ -17,11 +18,15 @@ export const getPortfolioReport = asyncHandler(async (req, res) => {
   })
 })
 
+function finalizeReport(req, report) {
+  return req.isClientUser ? sanitizeReportForClient(report) : report
+}
+
 export const getProjectReport = asyncHandler(async (req, res) => {
   const { projectId } = req.params
   const { format } = querySchema.parse(req.query)
 
-  const report = await generateProjectReport(projectId)
+  const report = finalizeReport(req, await generateProjectReport(projectId))
 
   switch (format) {
     case 'html':
@@ -35,7 +40,7 @@ export const getProjectReport = asyncHandler(async (req, res) => {
 
 export const getProjectStats = asyncHandler(async (req, res) => {
   const { projectId } = req.params
-  const report = await generateProjectReport(projectId)
+  const report = finalizeReport(req, await generateProjectReport(projectId))
   
   return res.json({
     statistics: report.statistics,
@@ -45,7 +50,7 @@ export const getProjectStats = asyncHandler(async (req, res) => {
 
 export const getProjectTables = asyncHandler(async (req, res) => {
   const { projectId } = req.params
-  const report = await generateProjectReport(projectId)
+  const report = finalizeReport(req, await generateProjectReport(projectId))
   
   return res.json({
     tables: report.tables,
@@ -56,12 +61,15 @@ export const getProjectTables = asyncHandler(async (req, res) => {
 
 export const getProjectApi = asyncHandler(async (req, res) => {
   const { projectId } = req.params
-  const report = await generateProjectReport(projectId)
+  const report = finalizeReport(req, await generateProjectReport(projectId))
   
   return res.json(report.apiDocumentation)
 })
 
 export const getProjectTeam = asyncHandler(async (req, res) => {
+  if (req.isClientUser) {
+    return res.json({ memberCount: 0 })
+  }
   const { projectId } = req.params
   const report = await generateProjectReport(projectId)
   
@@ -70,7 +78,7 @@ export const getProjectTeam = asyncHandler(async (req, res) => {
 
 export const getProjectTasks = asyncHandler(async (req, res) => {
   const { projectId } = req.params
-  const report = await generateProjectReport(projectId)
+  const report = finalizeReport(req, await generateProjectReport(projectId))
 
   return res.json(report.tasks)
 })

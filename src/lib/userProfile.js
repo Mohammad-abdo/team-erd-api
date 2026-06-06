@@ -1,4 +1,6 @@
+import { PlatformRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { serializeClientAccess } from "./clientPortal.js";
 
 const userPublicSelect = {
   id: true,
@@ -24,7 +26,8 @@ export async function enrichUserProfile(userId) {
   });
   if (!user) return null;
   const { teamMemberships, ...rest } = user;
-  return {
+
+  const profile = {
     ...rest,
     teams: teamMemberships.map((m) => ({
       id: m.team.id,
@@ -35,6 +38,25 @@ export async function enrichUserProfile(userId) {
       role: m.role,
     })),
   };
+
+  if (user.platformRole === PlatformRole.CLIENT) {
+    const rows = await prisma.clientProjectAccess.findMany({
+      where: { userId },
+      include: {
+        project: { select: { id: true, name: true, slug: true } },
+      },
+      orderBy: { project: { name: "asc" } },
+    });
+    profile.clientProjects = rows.map((row) => ({
+      projectId: row.projectId,
+      projectName: row.project.name,
+      projectSlug: row.project.slug,
+      access: serializeClientAccess(row),
+    }));
+    profile.teams = [];
+  }
+
+  return profile;
 }
 
 export { userPublicSelect };

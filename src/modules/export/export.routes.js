@@ -17,6 +17,8 @@ r.use(requireProjectPermission(PermissionResource.EXPORTS, PermissionAction.VIEW
 r.get("/sql", exportController.sql);
 r.get("/json", exportController.json);
 r.get("/markdown", exportController.markdown);
+r.get("/prisma", exportController.prismaSchema);
+r.get("/typeorm", exportController.typeorm);
 r.get("/swagger", exportController.swagger);
 r.get("/postman", exportController.postman);
 

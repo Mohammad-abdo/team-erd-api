@@ -50,6 +50,16 @@ export const removeProject = asyncHandler(async (req, res) => {
   res.status(204).end();
 });
 
+export const updateClientAccess = asyncHandler(async (req, res) => {
+  const clientAccess = await adminService.updateUserProjectClientAccess(
+    req.user.sub,
+    req.params.userId,
+    req.params.projectId,
+    req.body,
+  );
+  res.json({ clientAccess });
+});
+
 export const listProjects = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));

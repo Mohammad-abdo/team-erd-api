@@ -6,19 +6,19 @@ function layoutGrid(i) {
   return { x: 48 + (i % 5) * 268, y: 48 + Math.floor(i / 5) * 320 };
 }
 
-export async function importErdSchema(projectId, userId, { tables, relations, clearExisting }) {
+async function importErdSchemaTx(tx, projectId, userId, { tables, relations, clearExisting }) {
   if (clearExisting) {
-    await prisma.erdRelation.deleteMany({ where: { projectId } });
-    await prisma.erdTable.deleteMany({ where: { projectId } });
+    await tx.erdRelation.deleteMany({ where: { projectId } });
+    await tx.erdTable.deleteMany({ where: { projectId } });
   }
 
   const tableIdMap = new Map();
-  const existingCount = clearExisting ? 0 : await prisma.erdTable.count({ where: { projectId } });
+  const existingCount = clearExisting ? 0 : await tx.erdTable.count({ where: { projectId } });
 
   for (let i = 0; i < tables.length; i++) {
     const t = tables[i];
     const pos = layoutGrid(existingCount + i);
-    const created = await prisma.erdTable.create({
+    const created = await tx.erdTable.create({
       data: {
         projectId,
         name: t.name,
@@ -33,7 +33,7 @@ export async function importErdSchema(projectId, userId, { tables, relations, cl
     tableIdMap.set(t.name.toLowerCase(), created.id);
 
     if (t.columns?.length) {
-      await prisma.erdColumn.createMany({
+      await tx.erdColumn.createMany({
         data: t.columns.map((c, ci) => ({
           tableId: created.id,
           name: c.name,
@@ -48,10 +48,42 @@ export async function importErdSchema(projectId, userId, { tables, relations, cl
         })),
       });
     }
+
+    if (t.indexes?.length) {
+      for (let ii = 0; ii < t.indexes.length; ii++) {
+        const idx = t.indexes[ii];
+        const columnNames = Array.isArray(idx.columnNames) ? idx.columnNames : [];
+        if (!columnNames.length) continue;
+        await tx.erdTableIndex.create({
+          data: {
+            tableId: created.id,
+            name: idx.name || null,
+            columnNames,
+            isUnique: idx.isUnique ?? false,
+            sortOrder: idx.sortOrder ?? ii,
+          },
+        });
+      }
+    }
+
+    if (t.checkConstraints?.length) {
+      for (let ci = 0; ci < t.checkConstraints.length; ci++) {
+        const chk = t.checkConstraints[ci];
+        if (!chk.expression) continue;
+        await tx.erdCheckConstraint.create({
+          data: {
+            tableId: created.id,
+            name: chk.name || null,
+            expression: chk.expression,
+            sortOrder: chk.sortOrder ?? ci,
+          },
+        });
+      }
+    }
   }
 
   if (relations?.length) {
-    const allTables = await prisma.erdTable.findMany({
+    const allTables = await tx.erdTable.findMany({
       where: { projectId },
       include: { columns: true },
     });
@@ -73,7 +105,7 @@ export async function importErdSchema(projectId, userId, { tables, relations, cl
         if (col) toColId = col.id;
       }
 
-      await prisma.erdRelation.create({
+      await tx.erdRelation.create({
         data: {
           projectId,
           fromTableId: fromT.id,
@@ -88,39 +120,47 @@ export async function importErdSchema(projectId, userId, { tables, relations, cl
     }
   }
 
+  return { tablesCreated: tables.length, relationsCreated: relations?.length ?? 0 };
+}
+
+export async function importErdSchema(projectId, userId, input) {
+  const result = await prisma.$transaction(async (tx) =>
+    importErdSchemaTx(tx, projectId, userId, input),
+  );
+
   await logActivity({
     projectId,
     userId,
     action: "imported",
     entityType: "erd_schema",
     entityId: projectId,
-    newValues: { tables: tables.length, relations: relations?.length ?? 0 },
+    newValues: { tables: input.tables.length, relations: input.relations?.length ?? 0 },
   });
 
   emitToProject(projectId, "erd:updated", { at: Date.now() });
 
-  return { tablesCreated: tables.length, relationsCreated: relations?.length ?? 0 };
+  return result;
 }
 
-export async function importApiDocs(projectId, userId, { groups, clearExisting }) {
+async function importApiDocsTx(tx, projectId, userId, { groups, clearExisting }) {
   if (clearExisting) {
-    const existingGroups = await prisma.apiGroup.findMany({
+    const existingGroups = await tx.apiGroup.findMany({
       where: { projectId },
       select: { id: true },
     });
     const groupIds = existingGroups.map((g) => g.id);
     if (groupIds.length) {
-      const routeIds = await prisma.apiRoute.findMany({
+      const routeIds = await tx.apiRoute.findMany({
         where: { groupId: { in: groupIds } },
         select: { id: true },
       });
       const rIds = routeIds.map((r) => r.id);
       if (rIds.length) {
-        await prisma.apiRouteResponse.deleteMany({ where: { routeId: { in: rIds } } });
-        await prisma.apiParameter.deleteMany({ where: { routeId: { in: rIds } } });
+        await tx.apiRouteResponse.deleteMany({ where: { routeId: { in: rIds } } });
+        await tx.apiParameter.deleteMany({ where: { routeId: { in: rIds } } });
       }
-      await prisma.apiRoute.deleteMany({ where: { groupId: { in: groupIds } } });
-      await prisma.apiGroup.deleteMany({ where: { projectId } });
+      await tx.apiRoute.deleteMany({ where: { groupId: { in: groupIds } } });
+      await tx.apiGroup.deleteMany({ where: { projectId } });
     }
   }
 
@@ -128,7 +168,7 @@ export async function importApiDocs(projectId, userId, { groups, clearExisting }
 
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi];
-    const group = await prisma.apiGroup.create({
+    const group = await tx.apiGroup.create({
       data: {
         projectId,
         name: g.name,
@@ -140,7 +180,7 @@ export async function importApiDocs(projectId, userId, { groups, clearExisting }
 
     if (g.routes?.length) {
       for (const r of g.routes) {
-        const route = await prisma.apiRoute.create({
+        const route = await tx.apiRoute.create({
           data: {
             groupId: group.id,
             method: r.method || "GET",
@@ -155,7 +195,7 @@ export async function importApiDocs(projectId, userId, { groups, clearExisting }
         routeCount++;
 
         if (r.parameters?.length) {
-          await prisma.apiParameter.createMany({
+          await tx.apiParameter.createMany({
             data: r.parameters.map((p) => ({
               routeId: route.id,
               location: p.location || "QUERY",
@@ -169,7 +209,7 @@ export async function importApiDocs(projectId, userId, { groups, clearExisting }
         }
 
         if (r.responses?.length) {
-          await prisma.apiRouteResponse.createMany({
+          await tx.apiRouteResponse.createMany({
             data: r.responses.map((resp) => ({
               routeId: route.id,
               statusCode: resp.statusCode || 200,
@@ -182,18 +222,26 @@ export async function importApiDocs(projectId, userId, { groups, clearExisting }
     }
   }
 
+  return { groupsCreated: groups.length, routesCreated: routeCount };
+}
+
+export async function importApiDocs(projectId, userId, input) {
+  const result = await prisma.$transaction(async (tx) =>
+    importApiDocsTx(tx, projectId, userId, input),
+  );
+
   await logActivity({
     projectId,
     userId,
     action: "imported",
     entityType: "api_docs",
     entityId: projectId,
-    newValues: { groups: groups.length, routes: routeCount },
+    newValues: { groups: input.groups.length, routes: result.routesCreated },
   });
 
   emitToProject(projectId, "api:updated", { at: Date.now() });
 
-  return { groupsCreated: groups.length, routesCreated: routeCount };
+  return result;
 }
 
 /* ── OpenAPI 3.0 / Swagger import ─────────────────────────────────────── */

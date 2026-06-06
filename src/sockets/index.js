@@ -1,12 +1,13 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config/index.js";
 import { prisma } from "../lib/prisma.js";
+import { resolveProjectMembership } from "../lib/projectMembership.js";
 
 /**
  * @param {import("socket.io").Server} io
  */
 export function registerSockets(io) {
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const raw = socket.handshake.auth?.token;
       const token = typeof raw === "string" ? raw.trim() : "";
@@ -14,8 +15,15 @@ export function registerSockets(io) {
         return next(new Error("auth_required"));
       }
       const payload = jwt.verify(token, config.jwt.accessSecret);
-      socket.data.userId = payload.sub;
-      socket.data.email = payload.email;
+      const user = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, email: true, isActive: true },
+      });
+      if (!user?.isActive) {
+        return next(new Error("unauthorized"));
+      }
+      socket.data.userId = user.id;
+      socket.data.email = user.email;
       next();
     } catch {
       next(new Error("unauthorized"));
@@ -37,21 +45,16 @@ export function registerSockets(io) {
           return;
         }
 
-        const member = await prisma.projectMember.findFirst({
-          where: { projectId, userId: socket.data.userId },
-          include: {
-            user: { select: { id: true, name: true, avatar: true } },
-          },
-        });
+        const resolved = await resolveProjectMembership(projectId, socket.data.userId);
 
-        if (!member) {
+        if (!resolved) {
           reply({ ok: false, error: "forbidden" });
           return;
         }
 
         await socket.join(`project:${projectId}`);
 
-        const { user } = member;
+        const { user } = resolved;
         socket.data.userName = user.name;
         socket.data.userAvatar = user.avatar ?? null;
 

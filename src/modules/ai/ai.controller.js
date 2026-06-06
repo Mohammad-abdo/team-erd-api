@@ -11,6 +11,25 @@ export const previewSchema = asyncHandler(async (req, res) => {
   });
 });
 
+export const explainDrift = asyncHandler(async (req, res) => {
+  const result = await aiService.explainDriftReport(req.body);
+  res.json(result);
+});
+
+export const suggestApiRoutes = asyncHandler(async (req, res) => {
+  const result = await aiService.suggestApiRoutesFromErd(req.params.projectId);
+  res.json(result);
+});
+
+export const applyApiRoutes = asyncHandler(async (req, res) => {
+  const result = await aiService.applySuggestedApiRoutes(
+    req.params.projectId,
+    req.user.sub,
+    req.body,
+  );
+  res.status(201).json(result);
+});
+
 export const applySchema = asyncHandler(async (req, res) => {
   const generated = await aiService.generateSchemaFromDescription(req.body.description);
   const imported = await importErdSchema(req.params.projectId, req.user.sub, {

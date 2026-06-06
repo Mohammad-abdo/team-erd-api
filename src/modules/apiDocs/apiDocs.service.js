@@ -1,7 +1,13 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import { analyzeApiErdSync } from "../../lib/apiErdSync.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
+import {
+  applyTestSettingsPatch,
+  normalizeTestSettings,
+  toPersistedTestSettings,
+} from "../../lib/apiTestSettings.js";
 
 async function assertGroupInProject(projectId, groupId) {
   const g = await prisma.apiGroup.findFirst({
@@ -48,28 +54,35 @@ export async function getTestSettings(projectId, userId) {
   const row = await prisma.apiTestSetting.findUnique({
     where: { projectId_userId: { projectId, userId } },
   });
-  return row ?? { baseUrl: "http://localhost:3000", authToken: "", headers: [], body: "" };
+  return normalizeTestSettings(row ?? {});
 }
 
 export async function saveTestSettings(projectId, userId, input) {
-  return prisma.apiTestSetting.upsert({
+  const current = await getTestSettings(projectId, userId);
+  const normalized = applyTestSettingsPatch(current, input);
+  const persisted = toPersistedTestSettings(normalized);
+
+  const row = await prisma.apiTestSetting.upsert({
     where: { projectId_userId: { projectId, userId } },
     create: {
       projectId,
       userId,
-      baseUrl: input.baseUrl ?? "http://localhost:3000",
-      authToken: input.authToken ?? "",
-      headers: input.headers ?? [],
-      body: input.body ?? "",
+      ...persisted,
     },
-    update: {
-      ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl }),
-      ...(input.authToken !== undefined && { authToken: input.authToken }),
-      ...(input.headers !== undefined && { headers: input.headers }),
-      ...(input.body !== undefined && { body: input.body }),
-    },
+    update: persisted,
   });
+
+  return normalizeTestSettings(row);
 }
+
+const erdLinkInclude = {
+  erdLinks: {
+    orderBy: { erdTable: { name: "asc" } },
+    include: {
+      erdTable: { select: { id: true, name: true, label: true } },
+    },
+  },
+};
 
 export async function listGroups(projectId) {
   return prisma.apiGroup.findMany({
@@ -81,9 +94,107 @@ export async function listGroups(projectId) {
         include: {
           parameters: true,
           responses: true,
+          ...erdLinkInclude,
         },
       },
     },
+  });
+}
+
+export async function getErdSyncHints(projectId) {
+  const [tables, groups] = await Promise.all([
+    prisma.erdTable.findMany({
+      where: { projectId },
+      select: { id: true, name: true, label: true },
+      orderBy: { name: "asc" },
+    }),
+    listGroups(projectId),
+  ]);
+
+  const routes = groups.flatMap((g) =>
+    (g.routes ?? []).map((r) => ({
+      ...r,
+      group: { prefix: g.prefix },
+    })),
+  );
+
+  return analyzeApiErdSync(tables, routes);
+}
+
+export async function listErdLinks(projectId) {
+  const rows = await prisma.apiRouteErdLink.findMany({
+    where: {
+      route: { group: { projectId } },
+      erdTable: { projectId },
+    },
+    include: {
+      route: {
+        select: {
+          id: true,
+          method: true,
+          path: true,
+          group: { select: { prefix: true } },
+        },
+      },
+      erdTable: { select: { id: true, name: true, label: true } },
+    },
+    orderBy: [{ erdTable: { name: "asc" } }, { route: { path: "asc" } }],
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    routeId: row.routeId,
+    erdTableId: row.erdTableId,
+    route: {
+      id: row.route.id,
+      method: row.route.method,
+      path: row.route.path,
+      groupPrefix: row.route.group.prefix ?? "",
+    },
+    table: row.erdTable,
+  }));
+}
+
+export async function setRouteErdLinks(projectId, userId, routeId, erdTableIds) {
+  const route = await assertRouteInProject(projectId, routeId);
+  const uniqueIds = [...new Set(erdTableIds)];
+
+  if (uniqueIds.length) {
+    const tables = await prisma.erdTable.findMany({
+      where: { projectId, id: { in: uniqueIds } },
+      select: { id: true },
+    });
+    if (tables.length !== uniqueIds.length) {
+      throw new HttpError(400, "One or more ERD tables not found in this project");
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.apiRouteErdLink.deleteMany({ where: { routeId } });
+    if (uniqueIds.length) {
+      await tx.apiRouteErdLink.createMany({
+        data: uniqueIds.map((erdTableId) => ({ routeId, erdTableId })),
+      });
+    }
+  });
+
+  await logActivity({
+    projectId,
+    userId,
+    action: "updated",
+    entityType: "api_route",
+    entityId: routeId,
+    newValues: { erdTableIds: uniqueIds, path: route.path },
+  });
+
+  emitToProject(projectId, "api:updated", { at: Date.now() });
+
+  return prisma.apiRouteErdLink.findMany({
+    where: { routeId },
+    include: {
+      erdTable: { select: { id: true, name: true, label: true } },
+    },
+    orderBy: { erdTable: { name: "asc" } },
   });
 }
 

@@ -81,3 +81,48 @@ export const deleteRelation = asyncHandler(async (req, res) => {
   await erdService.deleteRelation(req.params.projectId, req.user.sub, req.params.relationId);
   res.status(204).end();
 });
+
+export const createTableIndex = asyncHandler(async (req, res) => {
+  const index = await erdService.createTableIndex(
+    req.params.projectId,
+    req.user.sub,
+    req.params.tableId,
+    req.body,
+  );
+  res.status(201).json({ index });
+});
+
+export const deleteTableIndex = asyncHandler(async (req, res) => {
+  await erdService.deleteTableIndex(
+    req.params.projectId,
+    req.user.sub,
+    req.params.tableId,
+    req.params.indexId,
+  );
+  res.status(204).end();
+});
+
+export const createCheckConstraint = asyncHandler(async (req, res) => {
+  const constraint = await erdService.createCheckConstraint(
+    req.params.projectId,
+    req.user.sub,
+    req.params.tableId,
+    req.body,
+  );
+  res.status(201).json({ constraint });
+});
+
+export const deleteCheckConstraint = asyncHandler(async (req, res) => {
+  await erdService.deleteCheckConstraint(
+    req.params.projectId,
+    req.user.sub,
+    req.params.tableId,
+    req.params.constraintId,
+  );
+  res.status(204).end();
+});
+
+export const getValidation = asyncHandler(async (req, res) => {
+  const validation = await erdService.getValidation(req.params.projectId);
+  res.json(validation);
+});

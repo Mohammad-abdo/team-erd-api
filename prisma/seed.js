@@ -594,6 +594,7 @@ async function main() {
       { projectId: project.id, userId: editor.id, resource: PermissionResource.API, action: PermissionAction.DELETE, grantedById: admin.id },
       { projectId: project.id, userId: commenter.id, resource: PermissionResource.COMMENTS, action: PermissionAction.CREATE, grantedById: admin.id },
       { projectId: project.id, userId: commenter.id, resource: PermissionResource.EXPORTS, action: PermissionAction.VIEW, grantedById: admin.id },
+      { projectId: project.id, userId: viewer.id, resource: PermissionResource.TASKS, action: PermissionAction.CREATE, grantedById: admin.id },
     ],
   });
 
@@ -798,7 +799,7 @@ async function main() {
   console.log("  7 comments (with replies)");
   console.log("  18 activity log entries");
   console.log("  5 notifications");
-  console.log("  6 permission grants");
+  console.log("  7 permission grants");
   console.log("  1 project template");
   console.log("\nSuper admin:", admin.email, "(platformRole: SUPER_ADMIN)");
   console.log("\nLog in with any account; password for all:", SEED_PASSWORD);

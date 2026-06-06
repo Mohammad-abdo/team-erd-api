@@ -1,4 +1,4 @@
-import { ProjectMemberRole, TaskStatus } from "@prisma/client";
+import { PlatformRole, ProjectMemberRole, TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logActivity } from "../activity/activity.service.js";
@@ -73,17 +73,29 @@ function projectAccessWhere(userId) {
   };
 }
 
+async function resolveProjectAccessWhere(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (user?.platformRole === PlatformRole.CLIENT) {
+    return { members: { some: { userId } } };
+  }
+  return projectAccessWhere(userId);
+}
+
 async function accessibleProjectIds(userId, projectId) {
+  const where = await resolveProjectAccessWhere(userId);
   if (projectId) {
     const p = await prisma.project.findFirst({
-      where: { id: projectId, ...projectAccessWhere(userId) },
+      where: { id: projectId, ...where },
       select: { id: true },
     });
     if (!p) throw new HttpError(403, "No access to this project");
     return [projectId];
   }
   const rows = await prisma.project.findMany({
-    where: projectAccessWhere(userId),
+    where,
     select: { id: true },
   });
   return rows.map((r) => r.id);

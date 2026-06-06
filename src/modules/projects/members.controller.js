@@ -1,4 +1,5 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { config } from "../../config/index.js";
 import * as membersService from "./members.service.js";
 
 export const list = asyncHandler(async (req, res) => {
@@ -30,6 +31,11 @@ export const add = asyncHandler(async (req, res) => {
   });
 });
 
+export const listInvitations = asyncHandler(async (req, res) => {
+  const invitations = await membersService.listPendingInvitations(req.params.projectId);
+  res.json({ invitations });
+});
+
 export const invite = asyncHandler(async (req, res) => {
   const invitation = await membersService.inviteMember({
     projectId: req.params.projectId,
@@ -38,6 +44,8 @@ export const invite = asyncHandler(async (req, res) => {
     role: req.body.role,
   });
 
+  const inviteUrl = `${config.appUrl}/invite?token=${invitation.token}`;
+
   res.status(201).json({
     invitation: {
       id: invitation.id,
@@ -45,8 +53,18 @@ export const invite = asyncHandler(async (req, res) => {
       role: invitation.role,
       expiresAt: invitation.expiresAt,
       token: invitation.token,
+      inviteUrl,
     },
   });
+});
+
+export const revokeInvitation = asyncHandler(async (req, res) => {
+  await membersService.revokeInvitation({
+    projectId: req.params.projectId,
+    invitationId: req.params.invitationId,
+    userId: req.user.sub,
+  });
+  res.status(204).end();
 });
 
 export const updateRole = asyncHandler(async (req, res) => {

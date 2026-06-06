@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { captureServerError } from "../lib/errorMonitor.js";
 
 export function errorHandler(err, _req, res, _next) {
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -20,7 +21,9 @@ export function errorHandler(err, _req, res, _next) {
       : err.message ?? "Internal server error";
 
   if (status >= 500) {
-    console.error(err);
+    captureServerError(err, {
+      path: _req?.method && _req?.url ? `${_req.method} ${_req.url}` : undefined,
+    });
   }
 
   res.status(status).json({

@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import { assertSafeWebhookUrl } from "../../lib/ssrfGuard.js";
 import { WEBHOOK_EVENTS, deliverWebhookOnce } from "../../lib/webhooks.js";
 
 export { WEBHOOK_EVENTS };
@@ -28,6 +29,8 @@ export async function createWebhook(projectId, userId, input) {
   if (invalid.length) {
     throw new HttpError(400, `Invalid events: ${invalid.join(", ")}`);
   }
+
+  await assertSafeWebhookUrl(input.url);
 
   return prisma.projectWebhook.create({
     data: {
@@ -62,6 +65,10 @@ export async function updateWebhook(projectId, webhookId, input) {
     if (invalid.length) {
       throw new HttpError(400, `Invalid events: ${invalid.join(", ")}`);
     }
+  }
+
+  if (input.url !== undefined) {
+    await assertSafeWebhookUrl(input.url);
   }
 
   return prisma.projectWebhook.update({

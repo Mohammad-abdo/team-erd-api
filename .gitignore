@@ -17,3 +17,6 @@ Thumbs.db
 # Optional build / coverage
 dist/
 coverage/
+
+# User uploads
+uploads/

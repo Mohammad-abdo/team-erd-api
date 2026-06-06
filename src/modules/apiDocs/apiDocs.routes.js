@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { ProjectMemberRole } from "@prisma/client";
 import { requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import {
   loadProjectMember,
-  requireProjectRole,
+  requireProjectPermission,
+  PermissionResource,
+  PermissionAction,
 } from "../../middleware/projectAccess.js";
 import {
   createGroupSchema,
@@ -15,6 +16,8 @@ import {
   updateParameterSchema,
   createResponseSchema,
   updateResponseSchema,
+  saveTestSettingsSchema,
+  setRouteErdLinksSchema,
 } from "./apiDocs.schemas.js";
 import * as apiDocsController from "./apiDocs.controller.js";
 
@@ -23,59 +26,69 @@ const r = Router({ mergeParams: true });
 r.use(requireAuth);
 r.use(loadProjectMember);
 
-const viewer = requireProjectRole(ProjectMemberRole.VIEWER);
-const editor = requireProjectRole(ProjectMemberRole.EDITOR);
+const apiView = requireProjectPermission(PermissionResource.API, PermissionAction.VIEW);
+const apiCreate = requireProjectPermission(PermissionResource.API, PermissionAction.CREATE);
+const apiEdit = requireProjectPermission(PermissionResource.API, PermissionAction.EDIT);
+const apiDelete = requireProjectPermission(PermissionResource.API, PermissionAction.DELETE);
 
-r.get("/test-settings", viewer, apiDocsController.getTestSettings);
-r.put("/test-settings", viewer, apiDocsController.saveTestSettings);
+r.get("/test-settings", apiView, apiDocsController.getTestSettings);
+r.put("/test-settings", apiView, validate(saveTestSettingsSchema), apiDocsController.saveTestSettings);
 
-r.get("/groups", viewer, apiDocsController.listGroups);
-r.post("/groups", editor, validate(createGroupSchema), apiDocsController.createGroup);
-r.put("/groups/:groupId", editor, validate(updateGroupSchema), apiDocsController.updateGroup);
-r.delete("/groups/:groupId", editor, apiDocsController.deleteGroup);
+r.get("/erd-sync-hints", apiView, apiDocsController.getErdSyncHints);
+r.get("/erd-links", apiView, apiDocsController.listErdLinks);
+r.get("/groups", apiView, apiDocsController.listGroups);
+r.post("/groups", apiCreate, validate(createGroupSchema), apiDocsController.createGroup);
+r.put("/groups/:groupId", apiEdit, validate(updateGroupSchema), apiDocsController.updateGroup);
+r.delete("/groups/:groupId", apiDelete, apiDocsController.deleteGroup);
 
 r.post(
   "/groups/:groupId/routes",
-  editor,
+  apiCreate,
   validate(createRouteSchema),
   apiDocsController.createRoute,
 );
-r.put("/routes/:routeId", editor, validate(updateRouteSchema), apiDocsController.updateRoute);
-r.delete("/routes/:routeId", editor, apiDocsController.deleteRoute);
+r.put("/routes/:routeId", apiEdit, validate(updateRouteSchema), apiDocsController.updateRoute);
+r.put(
+  "/routes/:routeId/erd-links",
+  apiEdit,
+  validate(setRouteErdLinksSchema),
+  apiDocsController.setRouteErdLinks,
+);
+r.delete("/routes/:routeId", apiDelete, apiDocsController.deleteRoute);
 
 r.post(
   "/routes/:routeId/parameters",
-  editor,
+  apiCreate,
   validate(createParameterSchema),
   apiDocsController.createParameter,
 );
 r.put(
   "/routes/:routeId/parameters/:paramId",
-  editor,
+  apiEdit,
   validate(updateParameterSchema),
   apiDocsController.updateParameter,
 );
 r.delete(
   "/routes/:routeId/parameters/:paramId",
-  editor,
+  apiDelete,
   apiDocsController.deleteParameter,
 );
 
 r.post(
   "/routes/:routeId/responses",
-  editor,
+  apiCreate,
   validate(createResponseSchema),
   apiDocsController.createResponse,
 );
 r.put(
   "/routes/:routeId/responses/:responseId",
-  editor,
+  apiEdit,
   validate(updateResponseSchema),
   apiDocsController.updateResponse,
 );
 r.delete(
   "/routes/:routeId/responses/:responseId",
-  editor,
+  apiDelete,
   apiDocsController.deleteResponse,
 );
 

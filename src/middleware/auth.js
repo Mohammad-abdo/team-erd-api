@@ -1,11 +1,13 @@
 import jwt from "jsonwebtoken";
 import { config } from "../config/index.js";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 /**
- * Verifies Bearer JWT (access). Attaches req.user = { sub, email }.
- * Replace with full user lookup when auth module is implemented.
+ * Verifies Bearer JWT (access) and ensures the user account is still active.
+ * Attaches req.user = { sub, email }.
  */
-export function requireAuth(req, res, next) {
+export const requireAuth = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
 
@@ -13,11 +15,22 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, config.jwt.accessSecret);
-    req.user = { sub: payload.sub, email: payload.email };
-    next();
+    payload = jwt.verify(token, config.jwt.accessSecret);
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
-}
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.sub },
+    select: { id: true, email: true, isActive: true },
+  });
+
+  if (!user?.isActive) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  req.user = { sub: user.id, email: user.email };
+  next();
+});

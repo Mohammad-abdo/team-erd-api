@@ -122,3 +122,23 @@ export const deleteResponse = asyncHandler(async (req, res) => {
   );
   res.status(204).end();
 });
+
+export const getErdSyncHints = asyncHandler(async (req, res) => {
+  const report = await apiDocsService.getErdSyncHints(req.params.projectId);
+  res.json(report);
+});
+
+export const listErdLinks = asyncHandler(async (req, res) => {
+  const links = await apiDocsService.listErdLinks(req.params.projectId);
+  res.json({ links });
+});
+
+export const setRouteErdLinks = asyncHandler(async (req, res) => {
+  const erdLinks = await apiDocsService.setRouteErdLinks(
+    req.params.projectId,
+    req.user.sub,
+    req.params.routeId,
+    req.body.erdTableIds,
+  );
+  res.json({ erdLinks });
+});

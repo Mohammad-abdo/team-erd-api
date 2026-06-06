@@ -1,10 +1,11 @@
 import { Router } from "express";
-import { ProjectMemberRole } from "@prisma/client";
 import { requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import {
   loadProjectMember,
-  requireProjectRole,
+  requireProjectPermission,
+  PermissionResource,
+  PermissionAction,
 } from "../../middleware/projectAccess.js";
 import {
   createTaskSchema,
@@ -18,15 +19,17 @@ const r = Router({ mergeParams: true });
 r.use(requireAuth);
 r.use(loadProjectMember);
 
-const viewer = requireProjectRole(ProjectMemberRole.VIEWER);
-const editor = requireProjectRole(ProjectMemberRole.EDITOR);
+const tasksView = requireProjectPermission(PermissionResource.TASKS, PermissionAction.VIEW);
+const tasksCreate = requireProjectPermission(PermissionResource.TASKS, PermissionAction.CREATE);
+const tasksEdit = requireProjectPermission(PermissionResource.TASKS, PermissionAction.EDIT);
+const tasksDelete = requireProjectPermission(PermissionResource.TASKS, PermissionAction.DELETE);
 
-r.get("/", viewer, tasksController.listProjectTasks);
-r.post("/", editor, validate(createTaskSchema), tasksController.createTask);
-r.get("/:taskId", viewer, tasksController.getTask);
-r.patch("/:taskId", editor, validate(updateTaskSchema), tasksController.updateTask);
-r.delete("/:taskId", editor, tasksController.deleteTask);
-r.post("/:taskId/progress", editor, validate(logProgressSchema), tasksController.logProgress);
-r.get("/:taskId/progress", viewer, tasksController.listProgress);
+r.get("/", tasksView, tasksController.listProjectTasks);
+r.post("/", tasksCreate, validate(createTaskSchema), tasksController.createTask);
+r.get("/:taskId", tasksView, tasksController.getTask);
+r.patch("/:taskId", tasksEdit, validate(updateTaskSchema), tasksController.updateTask);
+r.delete("/:taskId", tasksDelete, tasksController.deleteTask);
+r.post("/:taskId/progress", tasksEdit, validate(logProgressSchema), tasksController.logProgress);
+r.get("/:taskId/progress", tasksView, tasksController.listProgress);
 
 export default r;

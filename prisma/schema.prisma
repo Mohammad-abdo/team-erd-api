@@ -60,6 +60,7 @@ enum PermissionResource {
   API
   COMMENTS
   EXPORTS
+  TASKS
 }
 
 enum PermissionAction {
@@ -72,6 +73,7 @@ enum PermissionAction {
 enum PlatformRole {
   SUPER_ADMIN
   MEMBER
+  CLIENT
 }
 
 enum TeamRole {
@@ -138,6 +140,10 @@ model User {
   ratingsReceived     MemberRating[]   @relation("RatingsReceived")
   ratingsGiven        MemberRating[]   @relation("RatingsGiven")
   dailyReports        DailyReport[]
+  clientProjectAccess ClientProjectAccess[]
+  driftReportsChecked ProjectDriftReport[] @relation("DriftReportCheckedBy")
+  dbProfilesCreated   ProjectDbProfile[]   @relation("DbProfileCreatedBy")
+  driftSchedulesCreated ProjectDriftSchedule[] @relation("DriftScheduleCreatedBy")
 
   @@map("users")
 }
@@ -195,10 +201,78 @@ model Project {
   tasks           ProjectTask[]
   memberRatings   MemberRating[]
   dailyReports    DailyReport[]
+  clientAccess    ClientProjectAccess[]
+  driftReports    ProjectDriftReport[]
+  dbProfiles      ProjectDbProfile[]
+  driftSchedule   ProjectDriftSchedule?
 
   @@index([leaderId])
   @@index([healthStage])
   @@map("projects")
+}
+
+model ProjectDriftReport {
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  dialect       String   @db.VarChar(20)
+  databaseLabel String   @map("database_label") @db.VarChar(200)
+  inSync        Boolean  @map("in_sync")
+  issueCount    Int      @map("issue_count")
+  reportJson    Json     @map("report_json")
+  checkedById   String   @map("checked_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  checkedBy User    @relation("DriftReportCheckedBy", fields: [checkedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@map("project_drift_reports")
+}
+
+model ProjectDbProfile {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  name         String   @db.VarChar(120)
+  dialect      String   @db.VarChar(20)
+  host         String   @db.VarChar(255)
+  port         Int      @default(3306)
+  user         String   @db.VarChar(120)
+  passwordEnc  String   @map("password_enc") @db.Text
+  database     String   @db.VarChar(200)
+  schemaName   String?  @map("schema_name") @db.VarChar(128)
+  createdById  String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     User                  @relation("DbProfileCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  driftSchedule ProjectDriftSchedule?
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("project_db_profiles")
+}
+
+model ProjectDriftSchedule {
+  id             String    @id @default(cuid())
+  projectId      String    @unique @map("project_id")
+  profileId      String    @unique @map("profile_id")
+  enabled        Boolean   @default(true)
+  utcDay         Int       @default(1) @map("utc_day")
+  utcHour        Int       @default(6) @map("utc_hour")
+  lastRunAt      DateTime? @map("last_run_at")
+  lastRunStatus  String?   @map("last_run_status") @db.VarChar(30)
+  lastIssueCount Int?      @map("last_issue_count")
+  createdById    String    @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  profile   ProjectDbProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  createdBy User             @relation("DriftScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([profileId])
+  @@map("project_drift_schedules")
 }
 
 model Team {
@@ -298,6 +372,27 @@ model ProjectMember {
   @@map("project_members")
 }
 
+model ClientProjectAccess {
+  id           String  @id @default(cuid())
+  projectId    String  @map("project_id")
+  userId       String  @map("user_id")
+  viewOverview Boolean @default(true) @map("view_overview")
+  viewErd      Boolean @default(true) @map("view_erd")
+  viewApi      Boolean @default(false) @map("view_api")
+  viewReport   Boolean @default(true) @map("view_report")
+  viewTasks    Boolean @default(true) @map("view_tasks")
+  viewComments Boolean @default(false) @map("view_comments")
+  viewActivity Boolean @default(false) @map("view_activity")
+  viewHealth   Boolean @default(false) @map("view_health")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("client_project_access")
+}
+
 model ProjectInvitation {
   id         String    @id @default(cuid())
   projectId  String    @map("project_id")
@@ -366,12 +461,42 @@ model ErdTable {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy User    @relation("ErdTableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
-  columns        ErdColumn[]
-  relationsFrom  ErdRelation[] @relation("ErdRelationFromTable")
-  relationsTo    ErdRelation[] @relation("ErdRelationToTable")
+  columns           ErdColumn[]
+  indexes           ErdTableIndex[]
+  checkConstraints  ErdCheckConstraint[]
+  relationsFrom     ErdRelation[] @relation("ErdRelationFromTable")
+  relationsTo       ErdRelation[] @relation("ErdRelationToTable")
+  apiRouteLinks     ApiRouteErdLink[]
 
   @@index([projectId])
   @@map("erd_tables")
+}
+
+model ErdTableIndex {
+  id          String  @id @default(cuid())
+  tableId     String  @map("table_id")
+  name        String?
+  columnNames Json    @map("column_names")
+  isUnique    Boolean @default(false) @map("is_unique")
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  table ErdTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("erd_table_indexes")
+}
+
+model ErdCheckConstraint {
+  id         String  @id @default(cuid())
+  tableId    String  @map("table_id")
+  name       String?
+  expression String  @db.Text
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  table ErdTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@map("erd_check_constraints")
 }
 
 model ErdColumn {
@@ -452,9 +577,25 @@ model ApiRoute {
 
   parameters ApiParameter[]
   responses  ApiRouteResponse[]
+  erdLinks   ApiRouteErdLink[]
 
   @@index([groupId])
   @@map("api_routes")
+}
+
+model ApiRouteErdLink {
+  id         String   @id @default(cuid())
+  routeId    String   @map("route_id")
+  erdTableId String   @map("erd_table_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  route    ApiRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  erdTable ErdTable @relation(fields: [erdTableId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, erdTableId])
+  @@index([routeId])
+  @@index([erdTableId])
+  @@map("api_route_erd_links")
 }
 
 model ApiParameter {
@@ -499,12 +640,28 @@ model Comment {
 
   project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent  Comment? @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
-  replies Comment[] @relation("CommentThread")
+  parent      Comment?            @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     Comment[]           @relation("CommentThread")
+  attachments CommentAttachment[]
 
   @@index([projectId])
   @@index([commentableType, commentableId])
   @@map("comments")
+}
+
+model CommentAttachment {
+  id           String   @id @default(cuid())
+  commentId    String   @map("comment_id")
+  fileName     String   @map("file_name") @db.VarChar(255)
+  mimeType     String   @map("mime_type") @db.VarChar(120)
+  sizeBytes    Int      @map("size_bytes")
+  storagePath  String   @map("storage_path") @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([commentId])
+  @@map("comment_attachments")
 }
 
 model ActivityLog {
@@ -542,13 +699,15 @@ model Notification {
 }
 
 model ApiTestSetting {
-  id        String  @id @default(cuid())
-  projectId String  @map("project_id")
-  userId    String  @map("user_id")
-  baseUrl   String  @default("http://localhost:3000") @map("base_url") @db.VarChar(500)
-  authToken String? @map("auth_token") @db.Text
-  headers   Json?
-  body      String? @db.LongText
+  id                String  @id @default(cuid())
+  projectId         String  @map("project_id")
+  userId            String  @map("user_id")
+  baseUrl           String  @default("http://localhost:3000") @map("base_url") @db.VarChar(500)
+  authToken         String? @map("auth_token") @db.Text
+  activeEnvironment String  @default("dev") @map("active_environment") @db.VarChar(50)
+  environments      Json?
+  headers           Json?
+  body              String? @db.LongText
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
