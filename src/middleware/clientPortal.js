@@ -16,6 +16,14 @@ export const blockClientPlatform = asyncHandler(async (req, _res, next) => {
   next();
 });
 
+/** Allow client portal users when the route param matches their own user id. */
+export const blockClientPlatformUnlessSelf = asyncHandler(async (req, _res, next) => {
+  if (req.params.userId === req.user.sub) {
+    return next();
+  }
+  return blockClientPlatform(req, _res, next);
+});
+
 export function blockClientUsers(req, _res, next) {
   if (req.isClientUser) {
     return next(new HttpError(403, "Not available for client portal accounts"));

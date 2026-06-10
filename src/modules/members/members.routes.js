@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.js";
-import { blockClientPlatform } from "../../middleware/clientPortal.js";
+import { blockClientPlatform, blockClientPlatformUnlessSelf } from "../../middleware/clientPortal.js";
 import { validate } from "../../middleware/validate.js";
 import { createRatingSchema, createReportSchema, assignProjectSchema } from "./members.schemas.js";
 import * as membersController from "./members.controller.js";
@@ -8,6 +8,10 @@ import * as membersController from "./members.controller.js";
 const r = Router();
 
 r.use(requireAuth);
+
+// Client portal accounts may read their own profile; other member routes stay blocked.
+r.get("/:userId/profile", blockClientPlatformUnlessSelf, membersController.getProfile);
+
 r.use(blockClientPlatform);
 
 r.post("/reports", validate(createReportSchema), membersController.createReport);
@@ -19,8 +23,6 @@ r.post(
   validate(assignProjectSchema),
   membersController.assignToProject,
 );
-
-r.get("/:userId/profile", membersController.getProfile);
 r.get("/:userId/ratings", membersController.listRatings);
 r.post("/:userId/ratings", validate(createRatingSchema), membersController.createRating);
 
