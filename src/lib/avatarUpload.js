@@ -88,11 +88,40 @@ export function avatarStoragePath(userId, filename) {
 }
 
 export function buildAvatarPublicUrl(req, userId, filename) {
-  const basePath = config.apiBasePath || "";
-  const host = req.get("x-forwarded-host") || req.get("host");
-  const proto = req.get("x-forwarded-proto") || req.protocol || "http";
   const safeName = encodeURIComponent(path.basename(filename));
-  return `${proto}://${host}${basePath}/api/users/avatars/${userId}/${safeName}`;
+  const rel = `${config.apiBasePath || ""}/api/users/avatars/${userId}/${safeName}`;
+
+  if (config.apiPublicUrl) {
+    const apiRoot = config.apiPublicUrl.replace(/\/api\/?$/i, "");
+    return `${apiRoot}${rel}`;
+  }
+
+  const host = req.get("x-forwarded-host") || req.get("host");
+  const proto = req.get("x-forwarded-proto") || (config.isProd ? "https" : req.protocol) || "http";
+  return `${proto}://${host}${rel}`;
+}
+
+/** Upgrade http→https in prod and align managed avatar URLs with API_PUBLIC_URL. */
+export function normalizeAvatarUrl(avatar) {
+  if (!avatar || typeof avatar !== "string") return avatar ?? null;
+  let url = avatar.trim();
+  if (!url) return null;
+
+  if (/^http:\/\//i.test(url) && url.includes("/users/avatars/")) {
+    url = url.replace(/^http:\/\//i, "https://");
+  }
+
+  if (config.apiPublicUrl && url.includes("/users/avatars/")) {
+    try {
+      const parsed = new URL(url);
+      const apiRoot = config.apiPublicUrl.replace(/\/api\/?$/i, "");
+      return `${apiRoot}${parsed.pathname}`;
+    } catch {
+      /* keep best-effort url */
+    }
+  }
+
+  return url;
 }
 
 export function isManagedAvatarUrl(avatarUrl, userId) {

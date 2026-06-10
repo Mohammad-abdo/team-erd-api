@@ -31,5 +31,8 @@ export const serveAvatar = asyncHandler(async (req, res) => {
   );
   res.setHeader("Content-Type", mime);
   res.setHeader("Cache-Control", "public, max-age=86400");
+  // Allow <img> from frontend on another origin (e.g. Vercel → API subdomain).
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.sendFile(abs);
 });

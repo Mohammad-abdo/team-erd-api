@@ -2,6 +2,7 @@ import { PlatformRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { serializeClientAccess } from "./clientPortal.js";
 import { mergeNotificationPrefs } from "./notificationPrefs.js";
+import { normalizeAvatarUrl } from "./avatarUpload.js";
 
 const userPublicSelect = {
   id: true,
@@ -31,6 +32,7 @@ export async function enrichUserProfile(userId) {
   const { notificationPrefs, ...publicRest } = rest;
   const profile = {
     ...publicRest,
+    avatar: normalizeAvatarUrl(publicRest.avatar),
     notificationPrefs: mergeNotificationPrefs(notificationPrefs),
     teams: teamMemberships.map((m) => ({
       id: m.team.id,

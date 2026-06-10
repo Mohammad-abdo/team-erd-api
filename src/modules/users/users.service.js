@@ -8,6 +8,7 @@ import {
   avatarStoragePath,
   buildAvatarPublicUrl,
   deleteManagedAvatarFile,
+  normalizeAvatarUrl,
 } from "../../lib/avatarUpload.js";
 
 export async function getUserById(id) {
@@ -28,12 +29,13 @@ export async function listUserDirectory({ q, limit = 50 } = {}) {
       { email: { contains: term } },
     ];
   }
-  return prisma.user.findMany({
+  const rows = await prisma.user.findMany({
     where,
     orderBy: { name: "asc" },
     take,
     select: { id: true, name: true, email: true, avatar: true },
   });
+  return rows.map((u) => ({ ...u, avatar: normalizeAvatarUrl(u.avatar) }));
 }
 
 export async function updateUserProfile(userId, data) {
