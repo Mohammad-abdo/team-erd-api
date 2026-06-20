@@ -78,6 +78,15 @@ export const updateClientAccess = asyncHandler(async (req, res) => {
   res.json({ clientAccess });
 });
 
+export const transferProjectLeader = asyncHandler(async (req, res) => {
+  const project = await adminService.transferUserToProjectLeader(
+    req.user.sub,
+    req.params.userId,
+    req.params.projectId,
+  );
+  res.json({ project });
+});
+
 export const listProjects = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));

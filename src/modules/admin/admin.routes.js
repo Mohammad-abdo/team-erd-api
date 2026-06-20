@@ -54,6 +54,7 @@ r.patch(
   adminController.updateClientAccess,
 );
 r.delete("/users/:userId/projects/:projectId", adminController.removeProject);
+r.patch("/users/:userId/projects/:projectId/transfer-leader", adminController.transferProjectLeader);
 r.get("/projects", adminController.listProjects);
 r.get("/audit", adminController.auditLog);
 r.get("/security/rate-limits", adminController.rateLimits);

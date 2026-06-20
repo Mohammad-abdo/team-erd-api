@@ -1,11 +1,12 @@
 import { randomBytes } from "crypto";
-import { ProjectMemberRole } from "@prisma/client";
+import { PlatformRole, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 import { sendEmail } from "../../lib/email.js";
 import { config } from "../../config/index.js";
+import { logAdminAudit } from "../../lib/audit.js";
 
 const INVITE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -270,6 +271,109 @@ export async function removeMember({ projectId, leaderId, targetUserId }) {
   });
 
   emitToProject(projectId, "members:updated", { at: Date.now() });
+}
+
+export async function transferProjectLeader({
+  projectId,
+  newLeaderUserId,
+  actorId,
+  asAdmin = false,
+}) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, name: true, leaderId: true },
+  });
+  if (!project) {
+    throw new HttpError(404, "Project not found");
+  }
+  if (!asAdmin && project.leaderId !== actorId) {
+    throw new HttpError(403, "Only the project leader can transfer leadership");
+  }
+  if (newLeaderUserId === project.leaderId) {
+    throw new HttpError(400, "User is already the project leader");
+  }
+
+  const targetUser = await prisma.user.findUnique({
+    where: { id: newLeaderUserId },
+    select: { id: true, isActive: true, platformRole: true },
+  });
+  if (!targetUser?.isActive) {
+    throw new HttpError(404, "User not found");
+  }
+  if (targetUser.platformRole === PlatformRole.CLIENT) {
+    throw new HttpError(400, "Client users cannot be project leaders");
+  }
+
+  const oldLeaderId = project.leaderId;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.project.update({
+      where: { id: projectId },
+      data: { leaderId: newLeaderUserId },
+    });
+
+    if (oldLeaderId && oldLeaderId !== newLeaderUserId) {
+      const oldMember = await tx.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: oldLeaderId } },
+      });
+      if (oldMember && oldMember.role === ProjectMemberRole.LEADER) {
+        await tx.projectMember.update({
+          where: { id: oldMember.id },
+          data: { role: ProjectMemberRole.EDITOR },
+        });
+      }
+    }
+
+    const existing = await tx.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: newLeaderUserId } },
+    });
+    if (existing) {
+      await tx.projectMember.update({
+        where: { id: existing.id },
+        data: { role: ProjectMemberRole.LEADER },
+      });
+    } else {
+      await tx.projectMember.create({
+        data: {
+          projectId,
+          userId: newLeaderUserId,
+          role: ProjectMemberRole.LEADER,
+        },
+      });
+    }
+  });
+
+  await logActivity({
+    projectId,
+    userId: actorId,
+    action: "updated",
+    entityType: "project",
+    entityId: projectId,
+    oldValues: { leaderId: oldLeaderId },
+    newValues: { leaderId: newLeaderUserId },
+  });
+
+  if (asAdmin) {
+    await logAdminAudit({
+      userId: actorId,
+      action: "transferred_project_leader",
+      entityType: "project",
+      entityId: projectId,
+      meta: { oldLeaderId, newLeaderId: newLeaderUserId },
+    });
+  }
+
+  emitToProject(projectId, "members:updated", { at: Date.now() });
+
+  return prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      name: true,
+      leaderId: true,
+      leader: { select: { id: true, name: true, email: true } },
+    },
+  });
 }
 
 export async function acceptInvitation({ userId, userEmail, token }) {

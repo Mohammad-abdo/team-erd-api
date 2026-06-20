@@ -92,3 +92,13 @@ export const remove = asyncHandler(async (req, res) => {
   });
   res.status(204).end();
 });
+
+export const transferLeader = asyncHandler(async (req, res) => {
+  const project = await membersService.transferProjectLeader({
+    projectId: req.params.projectId,
+    newLeaderUserId: req.body.userId,
+    actorId: req.user.sub,
+    asAdmin: false,
+  });
+  res.json({ project });
+});

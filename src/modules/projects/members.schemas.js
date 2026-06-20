@@ -20,3 +20,7 @@ export const updateMemberRoleSchema = z.object({
     message: "Assigning leader role is not supported via this endpoint",
   }),
 });
+
+export const transferLeaderSchema = z.object({
+  userId: z.string().min(1),
+});

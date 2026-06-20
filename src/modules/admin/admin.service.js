@@ -6,7 +6,7 @@ import { logAdminAudit } from "../../lib/audit.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
 import { serializeClientAccess, upsertClientProjectAccess } from "../../lib/clientPortal.js";
 import * as teamsService from "../teams/teams.service.js";
-import { addMemberDirect } from "../projects/members.service.js";
+import { addMemberDirect, transferProjectLeader } from "../projects/members.service.js";
 
 const SALT_ROUNDS = 10;
 
@@ -281,6 +281,15 @@ export async function removeUserFromProject(adminId, userId, projectId) {
     entityType: "user",
     entityId: userId,
     meta: { projectId, role: member.role },
+  });
+}
+
+export async function transferUserToProjectLeader(adminId, userId, projectId) {
+  return transferProjectLeader({
+    projectId,
+    newLeaderUserId: userId,
+    actorId: adminId,
+    asAdmin: true,
   });
 }
 

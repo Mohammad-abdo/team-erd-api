@@ -8,7 +8,7 @@ import {
   requireProjectLeader,
   requireProjectRole,
 } from "../../middleware/projectAccess.js";
-import { addMemberSchema, inviteMemberSchema, updateMemberRoleSchema } from "./members.schemas.js";
+import { addMemberSchema, inviteMemberSchema, transferLeaderSchema, updateMemberRoleSchema } from "./members.schemas.js";
 import * as membersController from "./members.controller.js";
 
 const r = Router({ mergeParams: true });
@@ -41,6 +41,12 @@ r.put(
   requireProjectLeader,
   validate(updateMemberRoleSchema),
   membersController.updateRole,
+);
+r.patch(
+  "/leader",
+  requireProjectLeader,
+  validate(transferLeaderSchema),
+  membersController.transferLeader,
 );
 r.delete("/:userId", requireProjectLeader, membersController.remove);
 
