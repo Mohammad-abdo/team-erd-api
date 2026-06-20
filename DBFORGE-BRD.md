@@ -22,16 +22,18 @@
 
 | Level | Role | Capabilities |
 |-------|------|--------------|
-| Platform | `SUPER_ADMIN` | Full admin console, all teams/projects, user CRUD, audit, backup |
+| Platform | `SUPER_ADMIN` | Full admin console, backup, security, platform settings, impersonation |
+| Platform | `ORG_ADMIN` | User/team/project admin, audit, invitations; no backup/security/settings |
 | Platform | `MEMBER` | Normal app access |
-| Team | `TEAM_LEAD` | Manage team members & project assignment (within team) |
+| Platform | `CLIENT` | Client portal with per-project access flags |
+| Team | `TEAM_LEAD` | Manage team members, roles, and project assignment (team routes gated by `requireTeamLead`) |
 | Team | `MEMBER` | See team projects |
-| Project | `LEADER` | Full project control, settings, delete, permissions |
+| Project | `LEADER` | Full project control; transferable via leader transfer API |
 | Project | `EDITOR` | Edit ERD & API docs |
-| Project | `VIEWER` | Read-only project access |
+| Project | `VIEWER` | Read-only project access (also implicit via team) |
 | Project | `COMMENTER` | View + comment |
 
-Team-assigned users get implicit **VIEWER** access to linked projects (without being explicit project members).
+Team-assigned users get implicit **VIEWER** access to linked projects (without being explicit project members). Members may **request elevated access**; leaders/team leads approve via access requests. Project and client access may have optional **expiry** (`expires_at`); a daily cron deactivates expired rows when `ACCESS_EXPIRY_CRON=1`.
 
 ---
 
