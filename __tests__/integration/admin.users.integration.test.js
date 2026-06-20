@@ -160,4 +160,35 @@ describeIntegration("Admin users (integration)", () => {
     await prisma.teamMember.deleteMany({ where: { userId } }).catch(() => {});
     await prisma.user.delete({ where: { id: userId } }).catch(() => {});
   });
+
+  test("admin transfers project leader to existing member", async () => {
+    const project = await prisma.project.findFirst({
+      where: { slug: "e-commerce-platform" },
+      select: { id: true, leaderId: true },
+    });
+    expect(project).toBeTruthy();
+
+    const editor = await prisma.user.findUnique({
+      where: { email: "editor@dbforge.seed" },
+      select: { id: true },
+    });
+    expect(editor).toBeTruthy();
+
+    const res = await request(app)
+      .patch(`/api/admin/users/${editor.id}/projects/${project.id}/transfer-leader`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.project?.leaderId).toBe(editor.id);
+
+    const restored = await prisma.project.findUnique({
+      where: { id: project.id },
+      select: { leaderId: true },
+    });
+    await prisma.project.update({
+      where: { id: project.id },
+      data: { leaderId: project.leaderId },
+    });
+    expect(restored?.leaderId).toBe(editor.id);
+  });
 });

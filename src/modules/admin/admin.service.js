@@ -439,10 +439,9 @@ export async function listAllInvitations({ status = "pending" } = {}) {
   }
   const invitations = await prisma.projectInvitation.findMany({
     where: { acceptedAt: null, expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: "desc" },
+    orderBy: { expiresAt: "desc" },
     include: {
       project: { select: { id: true, name: true, slug: true } },
-      invitedBy: { select: { id: true, name: true, email: true } },
     },
   });
   return { invitations };
