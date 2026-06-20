@@ -15,6 +15,7 @@ import { attachSocketServer } from "./sockets/emit.js";
 import { startWeeklyDigestCron } from "./jobs/weeklyDigestCron.js";
 import { startDriftCheckCron } from "./jobs/driftCheckCron.js";
 import { startScheduledReportCron } from "./jobs/scheduledReportCron.js";
+import { startAccessExpiryCron } from "./jobs/accessExpiryCron.js";
 
 import authRoutes from "./modules/auth/auth.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
@@ -41,6 +42,10 @@ import tasksRoutes from "./modules/tasks/tasks.routes.js";
 import tasksGlobalRoutes from "./modules/tasks/tasks.global.routes.js";
 import dailyTasksGlobalRoutes from "./modules/dailyTasks/daily-tasks.global.routes.js";
 import membersRoutes from "./modules/members/members.routes.js";
+import {
+  accessRequestProjectRoutes,
+  accessRequestRoutes,
+} from "./modules/accessRequests/accessRequests.routes.js";
 
 const app = express();
 
@@ -153,6 +158,7 @@ mount("/api/invitations", invitationsRoutes);
 mount("/api/report", reportRoutes);
 
 mount("/api/projects/:projectId/members", projectMembersRoutes);
+mount("/api/projects/:projectId/access-requests", accessRequestProjectRoutes);
 mount("/api/projects/:projectId/permissions", permissionsRoutes);
 mount("/api/projects/:projectId/erd", erdRoutes);
 mount("/api/projects/:projectId/api", apiDocsRoutes);
@@ -166,6 +172,7 @@ mount("/api/projects/:projectId/tasks", tasksRoutes);
 
 mount("/api/projects", projectsRoutes);
 
+mount("/api/access-requests", accessRequestRoutes);
 mount("/api/notifications", notificationsRoutes);
 mount("/api/tasks", tasksGlobalRoutes);
 mount("/api/daily-tasks", dailyTasksGlobalRoutes);
@@ -199,6 +206,7 @@ if (process.env.NODE_ENV !== "test") {
       startWeeklyDigestCron();
       startDriftCheckCron();
       startScheduledReportCron();
+      startAccessExpiryCron();
     });
   });
 }

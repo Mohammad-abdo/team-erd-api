@@ -3,7 +3,7 @@ import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { slugify } from "../../utils/slug.js";
 import { logAdminAudit } from "../../lib/audit.js";
-import { isPlatformAdmin } from "../../middleware/adminAccess.js";
+import { isOrgAdmin, isSuperAdmin } from "../../middleware/adminAccess.js";
 
 async function uniqueTeamSlug(base) {
   let slug = slugify(base);
@@ -16,7 +16,7 @@ async function uniqueTeamSlug(base) {
 }
 
 export async function assertTeamManager(userId, teamId) {
-  const admin = await isPlatformAdmin(userId);
+  const admin = await isOrgAdmin(userId);
   if (admin) return { isAdmin: true };
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
@@ -55,7 +55,7 @@ function mapTeam(team) {
 }
 
 export async function listTeamsForUser(userId) {
-  const admin = await isPlatformAdmin(userId);
+  const admin = await isOrgAdmin(userId);
   if (admin) {
     const teams = await prisma.team.findMany({
       orderBy: { name: "asc" },
@@ -94,7 +94,7 @@ export async function getTeam(teamId) {
 }
 
 export async function createTeam(userId, input) {
-  if (!(await isPlatformAdmin(userId))) {
+  if (!(await isSuperAdmin(userId))) {
     throw new HttpError(403, "Only platform admin can create teams");
   }
   const slug = await uniqueTeamSlug(input.name);
@@ -136,7 +136,7 @@ export async function updateTeam(userId, teamId, input) {
 }
 
 export async function deleteTeam(userId, teamId) {
-  if (!(await isPlatformAdmin(userId))) {
+  if (!(await isSuperAdmin(userId))) {
     throw new HttpError(403, "Only platform admin can delete teams");
   }
   await prisma.team.delete({ where: { id: teamId } });
@@ -218,7 +218,7 @@ export async function unassignProjectFromTeam(actorId, teamId, projectId) {
 }
 
 export async function getUserTeamIds(userId) {
-  const admin = await isPlatformAdmin(userId);
+  const admin = await isOrgAdmin(userId);
   if (admin) return null;
   const rows = await prisma.teamMember.findMany({
     where: { userId },

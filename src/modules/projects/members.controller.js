@@ -1,5 +1,6 @@
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { config } from "../../config/index.js";
+import * as permissionsService from "../permissions/permissions.service.js";
 import * as membersService from "./members.service.js";
 
 export const list = asyncHandler(async (req, res) => {
@@ -101,4 +102,12 @@ export const transferLeader = asyncHandler(async (req, res) => {
     asAdmin: false,
   });
   res.json({ project });
+});
+
+export const effectivePermissions = asyncHandler(async (req, res) => {
+  const data = await permissionsService.getEffectivePermissions(
+    req.params.projectId,
+    req.params.userId,
+  );
+  res.json(data);
 });

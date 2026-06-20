@@ -5,6 +5,7 @@ import { HttpError } from "../../utils/httpError.js";
 import { logAdminAudit } from "../../lib/audit.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
 import { serializeClientAccess, upsertClientProjectAccess } from "../../lib/clientPortal.js";
+import { signAccessToken } from "../../lib/tokens.js";
 import * as teamsService from "../teams/teams.service.js";
 import { addMemberDirect, transferProjectLeader } from "../projects/members.service.js";
 
@@ -120,9 +121,54 @@ export async function getUserDetail(userId) {
   });
   if (!user) throw new HttpError(404, "User not found");
 
+  const directProjectIds = new Set(user.projectMembers.map((m) => m.project.id));
+  const teamIds = user.teamMemberships.map((m) => m.team.id);
+
+  const implicitRows = teamIds.length
+    ? await prisma.teamProject.findMany({
+        where: {
+          teamId: { in: teamIds },
+          projectId: { notIn: [...directProjectIds] },
+        },
+        include: {
+          project: { select: { id: true, name: true, slug: true, healthStage: true } },
+          team: { select: { id: true, name: true, slug: true } },
+        },
+      })
+    : [];
+
   const clientAccessByProject = new Map(
     user.clientProjectAccess.map((row) => [row.projectId, serializeClientAccess(row)]),
   );
+
+  const projects = user.projectMembers.map((m) => ({
+    id: m.project.id,
+    name: m.project.name,
+    slug: m.project.slug,
+    healthStage: m.project.healthStage,
+    role: m.role,
+    joinedAt: m.joinedAt,
+    expiresAt: m.expiresAt,
+    accessType: user.platformRole === PlatformRole.CLIENT ? "client" : "direct",
+    direct: true,
+    clientAccess: clientAccessByProject.get(m.project.id) ?? null,
+  }));
+
+  const implicitProjects = implicitRows.map((row) => ({
+    id: row.project.id,
+    name: row.project.name,
+    slug: row.project.slug,
+    healthStage: row.project.healthStage,
+    role: "VIEWER",
+    effectiveRole: "VIEWER",
+    accessType: "team_implicit",
+    direct: false,
+    viaTeam: {
+      id: row.team.id,
+      name: row.team.name,
+      slug: row.team.slug,
+    },
+  }));
 
   return {
     id: user.id,
@@ -139,15 +185,9 @@ export async function getUserDetail(userId) {
       color: m.team.color,
       role: m.role,
     })),
-    projects: user.projectMembers.map((m) => ({
-      id: m.project.id,
-      name: m.project.name,
-      slug: m.project.slug,
-      healthStage: m.project.healthStage,
-      role: m.role,
-      joinedAt: m.joinedAt,
-      clientAccess: clientAccessByProject.get(m.project.id) ?? null,
-    })),
+    projects,
+    implicitProjects,
+    accessSummary: [...projects, ...implicitProjects],
   };
 }
 
@@ -155,6 +195,15 @@ export async function updateUser(adminId, userId, input) {
   if (adminId === userId && input.isActive === false) {
     throw new HttpError(400, "Cannot deactivate your own account");
   }
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true },
+  });
+  if (!existing) throw new HttpError(404, "User not found");
+
+  const oldPlatformRole = existing.platformRole;
+  const newPlatformRole = input.platformRole ?? oldPlatformRole;
 
   const data = {
     ...(input.name !== undefined && { name: input.name.trim() }),
@@ -166,13 +215,33 @@ export async function updateUser(adminId, userId, input) {
     data.passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
   }
 
-  const user = await prisma.user.update({
-    where: { id: userId },
-    data,
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data });
+
+    if (oldPlatformRole === PlatformRole.MEMBER && newPlatformRole === PlatformRole.CLIENT) {
+      await tx.teamMember.deleteMany({ where: { userId } });
+      await tx.projectMember.updateMany({
+        where: { userId, role: { not: ProjectMemberRole.VIEWER } },
+        data: { role: ProjectMemberRole.VIEWER },
+      });
+      await tx.projectPermission.deleteMany({
+        where: {
+          userId,
+          OR: [
+            { action: { not: "VIEW" } },
+            { resource: "COMMENTS", action: "VIEW" },
+          ],
+        },
+      });
+    }
   });
 
   const auditMeta = { ...input };
   if (auditMeta.password) auditMeta.password = "[reset]";
+  if (input.platformRole !== undefined) {
+    auditMeta.oldPlatformRole = oldPlatformRole;
+    auditMeta.newPlatformRole = newPlatformRole;
+  }
 
   await logAdminAudit({
     userId: adminId,
@@ -182,7 +251,7 @@ export async function updateUser(adminId, userId, input) {
     meta: auditMeta,
   });
 
-  return enrichUserProfile(user.id);
+  return enrichUserProfile(userId);
 }
 
 export async function assignUserToTeam(adminId, userId, { teamId, role }) {
@@ -205,7 +274,7 @@ export async function removeUserFromTeam(adminId, userId, teamId) {
   await teamsService.removeTeamMember(adminId, teamId, userId);
 }
 
-export async function assignUserToProject(adminId, userId, { projectId, role, clientAccess }) {
+export async function assignUserToProject(adminId, userId, { projectId, role, clientAccess, expiresAt }) {
   const target = await prisma.user.findUnique({
     where: { id: userId },
     select: { platformRole: true },
@@ -222,10 +291,13 @@ export async function assignUserToProject(adminId, userId, { projectId, role, cl
     role: effectiveRole,
     addedById: adminId,
     asAdmin: true,
+    expiresAt: expiresAt ? new Date(expiresAt) : null,
   });
 
   if (target.platformRole === PlatformRole.CLIENT) {
-    await upsertClientProjectAccess(userId, projectId, clientAccess ?? {});
+    await upsertClientProjectAccess(userId, projectId, clientAccess ?? {}, {
+      expiresAt: expiresAt ? new Date(expiresAt) : null,
+    });
   }
 
   return member;
@@ -325,17 +397,136 @@ export async function listAllProjects({ skip = 0, take = 50 } = {}) {
   };
 }
 
-export async function listAuditLog({ limit = 50, skip = 0 } = {}) {
+export async function listAuditLog({
+  limit = 50,
+  skip = 0,
+  action,
+  entityType,
+  filter,
+} = {}) {
+  const where = {};
+  if (action) where.action = action;
+  if (entityType) where.entityType = entityType;
+  if (filter === "user_changes") {
+    where.entityType = "user";
+  } else if (filter === "role_changes") {
+    where.OR = [
+      { action: "updated", entityType: "user" },
+      { action: "transferred_project_leader" },
+      { action: "added_member", entityType: "team" },
+      { action: "removed_member", entityType: "team" },
+      { action: "removed_project_member" },
+      { action: "updated_client_access" },
+    ];
+  }
+
   const [items, total] = await Promise.all([
     prisma.adminAuditLog.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       include: { user: { select: { id: true, name: true, email: true } } },
     }),
-    prisma.adminAuditLog.count(),
+    prisma.adminAuditLog.count({ where }),
   ]);
   return { items, total };
+}
+
+export async function listAllInvitations({ status = "pending" } = {}) {
+  if (status !== "pending") {
+    throw new HttpError(400, "Only pending invitations are supported");
+  }
+  const invitations = await prisma.projectInvitation.findMany({
+    where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      project: { select: { id: true, name: true, slug: true } },
+      invitedBy: { select: { id: true, name: true, email: true } },
+    },
+  });
+  return { invitations };
+}
+
+export async function bulkUserAction(adminId, { userIds, action, payload = {} }) {
+  if (action === "deactivate") {
+    await prisma.user.updateMany({
+      where: { id: { in: userIds.filter((id) => id !== adminId) } },
+      data: { isActive: false },
+    });
+    await logAdminAudit({
+      userId: adminId,
+      action: "bulk_deactivated",
+      entityType: "user",
+      meta: { userIds, count: userIds.length },
+    });
+    return { updated: userIds.length };
+  }
+
+  if (action === "assignTeam") {
+    const { teamId, role } = payload;
+    if (!teamId) throw new HttpError(400, "teamId required");
+    let count = 0;
+    for (const userId of userIds) {
+      try {
+        await assignUserToTeam(adminId, userId, { teamId, role: role ?? TeamRole.MEMBER });
+        count += 1;
+      } catch {
+        // skip users that cannot be assigned
+      }
+    }
+    return { updated: count };
+  }
+
+  throw new HttpError(400, "Unknown bulk action");
+}
+
+export async function startImpersonation(adminId, targetUserId) {
+  if (adminId === targetUserId) {
+    throw new HttpError(400, "Cannot impersonate yourself");
+  }
+  const [admin, target] = await Promise.all([
+    prisma.user.findUnique({ where: { id: adminId }, select: { platformRole: true, isActive: true } }),
+    prisma.user.findUnique({ where: { id: targetUserId }, select: { platformRole: true, isActive: true, email: true } }),
+  ]);
+  if (!admin?.isActive || admin.platformRole !== PlatformRole.SUPER_ADMIN) {
+    throw new HttpError(403, "Super admin access required");
+  }
+  if (!target?.isActive) throw new HttpError(404, "User not found");
+  if (target.platformRole === PlatformRole.SUPER_ADMIN) {
+    throw new HttpError(400, "Cannot impersonate another super admin");
+  }
+
+  const accessToken = signAccessToken({
+    sub: targetUserId,
+    email: target.email,
+    impersonatorSub: adminId,
+  });
+
+  await logAdminAudit({
+    userId: adminId,
+    action: "impersonation_started",
+    entityType: "user",
+    entityId: targetUserId,
+  });
+
+  const user = await enrichUserProfile(targetUserId);
+  return { accessToken, user, impersonating: { userId: targetUserId, adminId } };
+}
+
+export async function stopImpersonation(adminId) {
+  await logAdminAudit({
+    userId: adminId,
+    action: "impersonation_stopped",
+    entityType: "user",
+  });
+  const admin = await prisma.user.findUnique({
+    where: { id: adminId },
+    select: { id: true, email: true },
+  });
+  const accessToken = signAccessToken({ sub: admin.id, email: admin.email });
+  const user = await enrichUserProfile(admin.id);
+  return { accessToken, user };
 }
 
 export async function exportCompanyBackup() {

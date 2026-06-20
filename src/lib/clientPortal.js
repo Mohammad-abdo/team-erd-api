@@ -75,8 +75,11 @@ export async function getClientAccessRecord(userId, projectId) {
   });
 }
 
-export async function upsertClientProjectAccess(userId, projectId, input) {
+export async function upsertClientProjectAccess(userId, projectId, input, { expiresAt } = {}) {
   const data = normalizeClientAccessInput(input);
+  if (expiresAt !== undefined) {
+    data.expiresAt = expiresAt;
+  }
   return prisma.clientProjectAccess.upsert({
     where: { projectId_userId: { projectId, userId } },
     create: { projectId, userId, ...data },

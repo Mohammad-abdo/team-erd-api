@@ -15,6 +15,10 @@ export const addMemberSchema = z.object({
   role: z.nativeEnum(TeamRole).optional(),
 });
 
+export const updateTeamMemberRoleSchema = z.object({
+  role: z.nativeEnum(TeamRole),
+});
+
 export const assignProjectSchema = z.object({
   projectId: z.string().min(1),
 });

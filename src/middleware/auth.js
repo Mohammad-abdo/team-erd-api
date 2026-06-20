@@ -31,6 +31,11 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  req.user = { sub: user.id, email: user.email };
+  req.user = {
+    sub: user.id,
+    email: user.email,
+    impersonatorSub: payload.impersonatorSub ?? null,
+  };
+  req.actorId = payload.impersonatorSub ?? user.id;
   next();
 });

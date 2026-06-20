@@ -122,8 +122,34 @@ export const securityOverview = asyncHandler(async (_req, res) => {
 export const auditLog = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-  const data = await adminService.listAuditLog({ limit, skip: (page - 1) * limit });
+  const data = await adminService.listAuditLog({
+    limit,
+    skip: (page - 1) * limit,
+    action: req.query.action,
+    entityType: req.query.entityType,
+    filter: req.query.filter,
+  });
   res.json({ ...data, page, limit });
+});
+
+export const listInvitations = asyncHandler(async (req, res) => {
+  const data = await adminService.listAllInvitations({ status: req.query.status ?? "pending" });
+  res.json(data);
+});
+
+export const bulkUsers = asyncHandler(async (req, res) => {
+  const result = await adminService.bulkUserAction(req.actorId ?? req.user.sub, req.body);
+  res.json(result);
+});
+
+export const startImpersonation = asyncHandler(async (req, res) => {
+  const data = await adminService.startImpersonation(req.actorId ?? req.user.sub, req.params.userId);
+  res.json(data);
+});
+
+export const stopImpersonation = asyncHandler(async (req, res) => {
+  const data = await adminService.stopImpersonation(req.actorId ?? req.user.sub);
+  res.json(data);
 });
 
 export const backup = asyncHandler(async (_req, res) => {

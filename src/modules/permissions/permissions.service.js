@@ -2,6 +2,46 @@ import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logActivity } from "../activity/activity.service.js";
 
+import { roleAllowsAction } from "../../lib/rolePermissionDefaults.js";
+
+const RESOURCES = ["ERD", "API", "COMMENTS", "EXPORTS", "TASKS"];
+const ACTIONS = ["VIEW", "CREATE", "EDIT", "DELETE"];
+
+export async function getEffectivePermissions(projectId, userId) {
+  const member = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId } },
+  });
+  if (!member) throw new HttpError(404, "User is not a project member");
+
+  const overrides = await prisma.projectPermission.findMany({
+    where: { projectId, userId },
+  });
+
+  const defaults = {};
+  const effective = {};
+  const overrideMap = {};
+
+  for (const resource of RESOURCES) {
+    defaults[resource] = ACTIONS.filter((action) => roleAllowsAction(member.role, resource, action));
+    effective[resource] = [...defaults[resource]];
+    overrideMap[resource] = {};
+  }
+
+  for (const row of overrides) {
+    overrideMap[row.resource][row.action] = true;
+    if (!effective[row.resource].includes(row.action)) {
+      effective[row.resource].push(row.action);
+    }
+  }
+
+  return {
+    role: member.role,
+    defaults,
+    overrides: overrideMap,
+    effective,
+  };
+}
+
 export async function listPermissions(projectId) {
   return prisma.projectPermission.findMany({
     where: { projectId },

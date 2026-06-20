@@ -114,6 +114,9 @@ export async function attachClientAccessToRequest(req, projectId, userId) {
   if (!access) {
     throw new HttpError(403, "No client access to this project");
   }
+  if (access.expiresAt && access.expiresAt < new Date()) {
+    throw new HttpError(403, "Client access to this project has expired");
+  }
 
   req.isClientUser = true;
   req.clientAccess = serializeClientAccess(access);

@@ -22,7 +22,7 @@ export async function listMembers(projectId) {
   });
 }
 
-export async function addMemberDirect({ projectId, userId, role, addedById, asAdmin = false }) {
+export async function addMemberDirect({ projectId, userId, role, addedById, asAdmin = false, expiresAt = null }) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: { id: true, name: true, leaderId: true },
@@ -41,7 +41,7 @@ export async function addMemberDirect({ projectId, userId, role, addedById, asAd
   if (existing) throw new HttpError(409, "User is already a member");
 
   const member = await prisma.projectMember.create({
-    data: { projectId, userId, role },
+    data: { projectId, userId, role, expiresAt },
     include: {
       user: { select: { id: true, name: true, email: true, avatar: true } },
     },

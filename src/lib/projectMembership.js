@@ -14,6 +14,9 @@ export async function resolveProjectMembership(projectId, userId) {
   });
 
   if (member) {
+    if (member.expiresAt && member.expiresAt < new Date()) {
+      return null;
+    }
     return { member, user: member.user };
   }
 

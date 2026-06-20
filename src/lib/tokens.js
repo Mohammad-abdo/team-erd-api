@@ -5,11 +5,14 @@ import { prisma } from "./prisma.js";
 import { durationToMs } from "../utils/time.js";
 
 export function signAccessToken(payload) {
-  return jwt.sign(
-    { sub: payload.sub, email: payload.email },
-    config.jwt.accessSecret,
-    { expiresIn: config.jwt.accessExpires },
-  );
+  const claims = {
+    sub: payload.sub,
+    email: payload.email,
+  };
+  if (payload.impersonatorSub) {
+    claims.impersonatorSub = payload.impersonatorSub;
+  }
+  return jwt.sign(claims, config.jwt.accessSecret, { expiresIn: config.jwt.accessExpires });
 }
 
 export function createRefreshTokenRow(userId) {

@@ -72,8 +72,15 @@ enum PermissionAction {
 
 enum PlatformRole {
   SUPER_ADMIN
+  ORG_ADMIN
   MEMBER
   CLIENT
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
 }
 
 enum TeamRole {
@@ -149,6 +156,8 @@ model User {
   platformSettingsUpdated PlatformSetting[] @relation("PlatformSettingsUpdatedBy")
   customReportsCreated    CustomReportDefinition[] @relation("CustomReportCreatedBy")
   scheduledReportsCreated ScheduledReport[]        @relation("ScheduledReportCreatedBy")
+  accessRequests          AccessRequest[]          @relation("AccessRequestUser")
+  accessRequestsReviewed  AccessRequest[]          @relation("AccessRequestReviewer")
 
   @@map("users")
 }
@@ -226,6 +235,7 @@ model Project {
   dbProfiles      ProjectDbProfile[]
   driftSchedule   ProjectDriftSchedule?
   customReports   CustomReportDefinition[]
+  accessRequests  AccessRequest[]
 
   @@index([leaderId])
   @@index([healthStage])
@@ -385,6 +395,7 @@ model ProjectMember {
   role       ProjectMemberRole
   invitedById String?          @map("invited_by")
   joinedAt   DateTime          @default(now()) @map("joined_at")
+  expiresAt  DateTime?         @map("expires_at")
 
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -396,10 +407,11 @@ model ProjectMember {
 }
 
 model ClientProjectAccess {
-  id           String  @id @default(cuid())
-  projectId    String  @map("project_id")
-  userId       String  @map("user_id")
-  viewOverview Boolean @default(true) @map("view_overview")
+  id           String    @id @default(cuid())
+  projectId    String    @map("project_id")
+  userId       String    @map("user_id")
+  expiresAt    DateTime? @map("expires_at")
+  viewOverview Boolean   @default(true) @map("view_overview")
   viewErd      Boolean @default(true) @map("view_erd")
   viewApi      Boolean @default(false) @map("view_api")
   viewReport   Boolean @default(true) @map("view_report")
@@ -414,6 +426,26 @@ model ClientProjectAccess {
   @@unique([projectId, userId])
   @@index([userId])
   @@map("client_project_access")
+}
+
+model AccessRequest {
+  id             String              @id @default(cuid())
+  userId         String              @map("user_id")
+  projectId      String              @map("project_id")
+  requestedRole  ProjectMemberRole   @map("requested_role")
+  message        String?             @db.Text
+  status         AccessRequestStatus @default(PENDING)
+  reviewedById   String?             @map("reviewed_by")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  reviewedAt     DateTime?           @map("reviewed_at")
+
+  user       User    @relation("AccessRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("AccessRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+  @@index([userId])
+  @@map("access_requests")
 }
 
 model ProjectInvitation {

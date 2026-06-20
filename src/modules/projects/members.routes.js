@@ -42,6 +42,11 @@ r.put(
   validate(updateMemberRoleSchema),
   membersController.updateRole,
 );
+r.get(
+  "/:userId/permissions/effective",
+  requireProjectLeader,
+  membersController.effectivePermissions,
+);
 r.patch(
   "/leader",
   requireProjectLeader,

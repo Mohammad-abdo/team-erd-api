@@ -3,7 +3,10 @@ import * as usersService from "./users.service.js";
 
 export const me = asyncHandler(async (req, res) => {
   const user = await usersService.getUserById(req.user.sub);
-  res.json({ user });
+  const impersonation = req.user.impersonatorSub
+    ? { active: true, adminId: req.user.impersonatorSub }
+    : { active: false };
+  res.json({ user, impersonation });
 });
 
 export const directory = asyncHandler(async (req, res) => {

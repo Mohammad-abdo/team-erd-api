@@ -32,6 +32,14 @@ export const addMember = asyncHandler(async (req, res) => {
   res.status(201).json({ member });
 });
 
+export const updateMemberRole = asyncHandler(async (req, res) => {
+  const member = await teamsService.addTeamMember(req.user.sub, req.params.teamId, {
+    userId: req.params.userId,
+    role: req.body.role,
+  });
+  res.json({ member });
+});
+
 export const removeMember = asyncHandler(async (req, res) => {
   await teamsService.removeTeamMember(req.user.sub, req.params.teamId, req.params.userId);
   res.status(204).end();

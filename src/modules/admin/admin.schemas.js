@@ -38,6 +38,16 @@ export const assignProjectSchema = z.object({
     .refine((r) => r !== ProjectMemberRole.LEADER, { message: "Cannot assign as leader" })
     .optional(),
   clientAccess: clientAccessSchema.optional(),
+  expiresAt: z.string().datetime().optional().nullable(),
+});
+
+export const bulkUsersSchema = z.object({
+  userIds: z.array(z.string().min(1)).min(1).max(100),
+  action: z.enum(["deactivate", "assignTeam"]),
+  payload: z.object({
+    teamId: z.string().min(1).optional(),
+    role: z.nativeEnum(TeamRole).optional(),
+  }).optional(),
 });
 
 export const updateClientAccessSchema = clientAccessSchema;
