@@ -12,6 +12,7 @@ import {
 } from "./teams.schemas.js";
 import * as teamsController from "./teams.controller.js";
 import meetingsRoutes from "../meetings/meetings.routes.js";
+import dailyTasksRoutes from "../dailyTasks/daily-tasks.routes.js";
 
 const r = Router();
 

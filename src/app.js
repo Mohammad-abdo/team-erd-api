@@ -46,6 +46,10 @@ import organizationsRoutes from "./modules/organizations/organizations.routes.js
 import progressRoutes from "./modules/progress/progress.routes.js";
 import { startMeetingReminderCron } from "./jobs/meetingReminderCron.js";
 import aiTeamRoutes from "./modules/ai/ai.team.routes.js";
+import {
+  accessRequestProjectRoutes,
+  accessRequestRoutes,
+} from "./modules/accessRequests/accessRequests.routes.js";
 
 const app = express();
 
@@ -206,6 +210,7 @@ if (process.env.NODE_ENV !== "test") {
     server.listen(config.port, () => {
       const base = config.apiBasePath ? ` (base path ${config.apiBasePath})` : "";
       console.log(`DBForge API listening on http://localhost:${config.port}${base}`);
+      console.log(`CORS origins: ${config.corsOrigin.join(", ")}`);
       startWeeklyDigestCron();
       startDriftCheckCron();
       startScheduledReportCron();
