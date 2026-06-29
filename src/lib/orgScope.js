@@ -1,5 +1,6 @@
 import { PlatformRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import { HttpError } from "../utils/httpError.js";
 
 const DEFAULT_ORG_ID = "org_default";
 
@@ -39,6 +40,16 @@ export function orgWhereClause(user) {
   if (isSuperAdmin(user)) return {};
   const orgId = user?.organizationId ?? DEFAULT_ORG_ID;
   return { organizationId: orgId };
+}
+
+/** Load a user's platform context; throws 401 if not found. */
+export async function loadUserContext(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, platformRole: true, organizationId: true },
+  });
+  if (!user) throw new HttpError(401, "Unauthorized");
+  return user;
 }
 
 export { DEFAULT_ORG_ID };

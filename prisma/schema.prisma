@@ -1152,6 +1152,8 @@ model WorkShift {
   organizationId String    @map("organization_id")
   startedAt      DateTime  @default(now()) @map("started_at")
   endedAt        DateTime? @map("ended_at")
+  pausedAt       DateTime? @map("paused_at")
+  pausedSeconds  Int       @default(0) @map("paused_seconds")
   note           String?   @db.Text
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)

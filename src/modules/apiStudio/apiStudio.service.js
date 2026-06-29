@@ -117,6 +117,8 @@ function validateProxyTarget(url) {
 }
 
 async function pruneHistory(projectId, userId) {
+  const count = await prisma.apiRequestHistory.count({ where: { projectId, userId } });
+  if (count <= HISTORY_LIMIT) return;
   const stale = await prisma.apiRequestHistory.findMany({
     where: { projectId, userId },
     orderBy: { createdAt: "desc" },
@@ -314,21 +316,26 @@ export async function runCollection(projectId, userId, { requests = [] } = {}) {
     throw new HttpError(400, "requests array is required");
   }
 
-  const results = [];
-  for (const req of requests) {
-    const result = await executeProxy(projectId, userId, req);
-    results.push({
-      label: req.label ?? null,
-      ...result,
-    });
+  // Run batches of 10 concurrently — all requests are independent
+  const BATCH = 10;
+  const all = [];
+  for (let i = 0; i < requests.length; i += BATCH) {
+    const batch = requests.slice(i, i + BATCH);
+    const batchResults = await Promise.all(
+      batch.map(async (req) => {
+        const result = await executeProxy(projectId, userId, req);
+        return { label: req.label ?? null, ...result };
+      }),
+    );
+    all.push(...batchResults);
   }
 
-  const succeeded = results.filter((r) => r.response.ok).length;
+  const succeeded = all.filter((r) => r.response.ok).length;
   return {
-    total: results.length,
+    total: all.length,
     succeeded,
-    failed: results.length - succeeded,
-    results,
+    failed: all.length - succeeded,
+    results: all,
   };
 }
 

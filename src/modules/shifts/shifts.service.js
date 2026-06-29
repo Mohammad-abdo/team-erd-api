@@ -1,7 +1,12 @@
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { getUserOrganizationId, DEFAULT_ORG_ID } from "../../lib/orgScope.js";
-import { getManagedMemberUserIds } from "../../lib/teamHierarchy.js";
+import {
+  getUserOrganizationId,
+  DEFAULT_ORG_ID,
+  loadUserContext,
+  userIsOrgAdmin,
+  isSuperAdmin,
+} from "../../lib/orgScope.js";
 
 function startOfDay(value) {
   const d = value ? new Date(value) : new Date();
@@ -23,22 +28,65 @@ function startOfWeek(value) {
   return d;
 }
 
-function shiftHours(shift) {
-  const end = shift.endedAt ? new Date(shift.endedAt) : new Date();
-  const start = new Date(shift.startedAt);
-  return Math.max(0, (end.getTime() - start.getTime()) / 3600000);
+export function shiftHours(shift) {
+  const start = new Date(shift.startedAt).getTime();
+  const end = shift.endedAt
+    ? new Date(shift.endedAt).getTime()
+    : shift.pausedAt
+      ? new Date(shift.pausedAt).getTime()
+      : Date.now();
+  const pausedMs = (shift.pausedSeconds ?? 0) * 1000;
+  return Math.max(0, (end - start - pausedMs) / 3600000);
 }
 
-async function loadViewer(userId) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, platformRole: true, organizationId: true },
+async function getOpenShift(userId) {
+  return prisma.workShift.findFirst({
+    where: { userId, endedAt: null },
+    orderBy: { startedAt: "desc" },
   });
-  if (!user) throw new HttpError(401, "Unauthorized");
-  return user;
+}
+
+/** Team members visible on the shift board (any member, not managers only). */
+async function resolveBoardMemberIds(viewerId, viewer, { teamId } = {}) {
+  const orgId = viewer.organizationId ?? DEFAULT_ORG_ID;
+
+  if (userIsOrgAdmin(viewer) || isSuperAdmin(viewer)) {
+    const teamWhere = teamId ? { id: teamId } : { organizationId: orgId };
+    const members = await prisma.teamMember.findMany({
+      where: { team: teamWhere },
+      select: { userId: true },
+      distinct: ["userId"],
+    });
+    return members.map((m) => m.userId);
+  }
+
+  const myMemberships = await prisma.teamMember.findMany({
+    where: { userId: viewerId },
+    select: { teamId: true },
+  });
+  const myTeamIds = myMemberships.map((m) => m.teamId);
+  if (!myTeamIds.length) return [viewerId];
+
+  let scopeTeamIds = myTeamIds;
+  if (teamId) {
+    if (!myTeamIds.includes(teamId)) {
+      throw new HttpError(403, "Not a member of this team");
+    }
+    scopeTeamIds = [teamId];
+  }
+
+  const members = await prisma.teamMember.findMany({
+    where: { teamId: { in: scopeTeamIds } },
+    select: { userId: true },
+    distinct: ["userId"],
+  });
+  return members.length ? members.map((m) => m.userId) : [viewerId];
 }
 
 export async function getTodayShift(userId) {
+  const open = await getOpenShift(userId);
+  if (open) return open;
+
   const today = startOfDay();
   return prisma.workShift.findFirst({
     where: {
@@ -50,10 +98,7 @@ export async function getTodayShift(userId) {
 }
 
 export async function startShift(userId) {
-  const open = await prisma.workShift.findFirst({
-    where: { userId, endedAt: null },
-    orderBy: { startedAt: "desc" },
-  });
+  const open = await getOpenShift(userId);
   if (open) {
     throw new HttpError(409, "You already have an open shift");
   }
@@ -67,18 +112,55 @@ export async function startShift(userId) {
   });
 }
 
-export async function endShift(userId, { note } = {}) {
-  const open = await prisma.workShift.findFirst({
-    where: { userId, endedAt: null },
-    orderBy: { startedAt: "desc" },
+export async function pauseShift(userId) {
+  const open = await getOpenShift(userId);
+  if (!open) {
+    throw new HttpError(404, "No open shift to pause");
+  }
+  if (open.pausedAt) {
+    throw new HttpError(409, "Shift is already paused");
+  }
+  return prisma.workShift.update({
+    where: { id: open.id },
+    data: { pausedAt: new Date() },
   });
+}
+
+export async function resumeShift(userId) {
+  const open = await getOpenShift(userId);
+  if (!open) {
+    throw new HttpError(404, "No open shift to resume");
+  }
+  if (!open.pausedAt) {
+    throw new HttpError(409, "Shift is not paused");
+  }
+  const extra = Math.floor((Date.now() - new Date(open.pausedAt).getTime()) / 1000);
+  return prisma.workShift.update({
+    where: { id: open.id },
+    data: {
+      pausedAt: null,
+      pausedSeconds: (open.pausedSeconds ?? 0) + extra,
+    },
+  });
+}
+
+export async function endShift(userId, { note } = {}) {
+  const open = await getOpenShift(userId);
   if (!open) {
     throw new HttpError(404, "No open shift to end");
   }
+
+  let pausedSeconds = open.pausedSeconds ?? 0;
+  if (open.pausedAt) {
+    pausedSeconds += Math.floor((Date.now() - new Date(open.pausedAt).getTime()) / 1000);
+  }
+
   return prisma.workShift.update({
     where: { id: open.id },
     data: {
       endedAt: new Date(),
+      pausedAt: null,
+      pausedSeconds,
       ...(note !== undefined && { note: note?.trim() || null }),
     },
   });
@@ -93,8 +175,8 @@ export async function listMyShifts(userId, { limit = 14 } = {}) {
 }
 
 export async function getTeamShiftBoard(viewerId, { teamId, date } = {}) {
-  const viewer = await loadViewer(viewerId);
-  const memberIds = await getManagedMemberUserIds(viewerId, viewer, { teamId });
+  const viewer = await loadUserContext(viewerId);
+  const memberIds = await resolveBoardMemberIds(viewerId, viewer, { teamId });
   if (!memberIds.length) {
     throw new HttpError(403, "No team access for shift board");
   }
@@ -122,6 +204,7 @@ export async function getTeamShiftBoard(viewerId, { teamId, date } = {}) {
     byUser.set(u.id, {
       user: u,
       onShiftNow: false,
+      pausedNow: false,
       todayHours: 0,
       weekHours: 0,
       todayShifts: [],
@@ -137,7 +220,10 @@ export async function getTeamShiftBoard(viewerId, { teamId, date } = {}) {
     if (started >= dayStart && started < dayEnd) {
       row.todayHours += hours;
       row.todayShifts.push(shift);
-      if (!shift.endedAt) row.onShiftNow = true;
+      if (!shift.endedAt) {
+        row.onShiftNow = true;
+        row.pausedNow = Boolean(shift.pausedAt);
+      }
     }
   }
 
@@ -152,12 +238,15 @@ export async function getTeamShiftBoard(viewerId, { teamId, date } = {}) {
 }
 
 export async function exportTeamShiftsCsv(viewerId, { teamId, from, to } = {}) {
-  const viewer = await loadViewer(viewerId);
-  const memberIds = await getManagedMemberUserIds(viewerId, viewer, { teamId });
+  const viewer = await loadUserContext(viewerId);
+  const memberIds = await resolveBoardMemberIds(viewerId, viewer, { teamId });
   if (!memberIds.length) throw new HttpError(403, "No team access");
 
   const fromDate = startOfDay(from ?? new Date());
   const toDate = endOfDay(to ?? from ?? new Date());
+  if (toDate <= fromDate) {
+    throw new HttpError(400, "to date must be on or after from date");
+  }
 
   const shifts = await prisma.workShift.findMany({
     where: {
@@ -168,7 +257,7 @@ export async function exportTeamShiftsCsv(viewerId, { teamId, from, to } = {}) {
     orderBy: { startedAt: "asc" },
   });
 
-  const header = "user_name,user_email,started_at,ended_at,hours,note";
+  const header = "user_name,user_email,started_at,ended_at,hours,paused_seconds,note";
   const lines = shifts.map((s) => {
     const hours = shiftHours(s).toFixed(2);
     const name = `"${(s.user.name ?? "").replace(/"/g, '""')}"`;
@@ -176,7 +265,7 @@ export async function exportTeamShiftsCsv(viewerId, { teamId, from, to } = {}) {
     const started = new Date(s.startedAt).toISOString();
     const ended = s.endedAt ? new Date(s.endedAt).toISOString() : "";
     const note = `"${(s.note ?? "").replace(/"/g, '""')}"`;
-    return `${name},${email},${started},${ended},${hours},${note}`;
+    return `${name},${email},${started},${ended},${hours},${s.pausedSeconds ?? 0},${note}`;
   });
 
   return [header, ...lines].join("\n");

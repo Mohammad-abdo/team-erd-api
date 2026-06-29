@@ -2,6 +2,7 @@ import { TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { canSuperviseUser, getManagedMemberUserIds } from "../../lib/teamHierarchy.js";
+import { loadUserContext } from "../../lib/orgScope.js";
 import { getProgressInsights } from "../progress/progress.service.js";
 
 function parseMonth(month) {
@@ -45,19 +46,11 @@ function isoWeekKey(date) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-async function loadViewer(userId) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, platformRole: true, organizationId: true },
-  });
-  if (!user) throw new HttpError(401, "Unauthorized");
-  return user;
-}
 
 async function assertCanViewPerformance(viewerId, targetUserId) {
   if (viewerId === targetUserId) return { isSelf: true };
 
-  const viewer = await loadViewer(viewerId);
+  const viewer = await loadUserContext(viewerId);
   const allowed = await canSuperviseUser(viewerId, targetUserId, viewer);
   if (!allowed) {
     throw new HttpError(403, "You do not have access to this performance data");
@@ -240,7 +233,10 @@ async function buildPerformancePayload(viewerId, targetUserId, monthInput, { inc
 
   const [kpis, insights] = await Promise.all([
     aggregateMonthlyKpis(targetUserId, period),
-    getProgressInsights(viewerId, targetUserId).catch(() => null),
+    getProgressInsights(viewerId, targetUserId).catch((err) => {
+      console.error(`[performance] getProgressInsights failed for ${targetUserId}:`, err.message);
+      return null;
+    }),
   ]);
 
   const payload = {
@@ -278,7 +274,7 @@ export async function getUserPerformance(viewerId, targetUserId, { month } = {})
 }
 
 export async function getTeamPerformance(viewerId, { teamId, month } = {}) {
-  const viewer = await loadViewer(viewerId);
+  const viewer = await loadUserContext(viewerId);
   const memberIds = await getManagedMemberUserIds(viewerId, viewer, { teamId });
   if (!memberIds.length) {
     throw new HttpError(403, "No team access for performance summary");

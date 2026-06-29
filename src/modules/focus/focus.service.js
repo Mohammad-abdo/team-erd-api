@@ -2,6 +2,7 @@ import { TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { getManagedMemberUserIds } from "../../lib/teamHierarchy.js";
+import { loadUserContext } from "../../lib/orgScope.js";
 
 function toDateOnly(value) {
   const d = value ? new Date(value) : new Date();
@@ -9,14 +10,6 @@ function toDateOnly(value) {
   return d;
 }
 
-async function loadViewer(userId) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, platformRole: true, organizationId: true },
-  });
-  if (!user) throw new HttpError(401, "Unauthorized");
-  return user;
-}
 
 async function assertTaskLink(userId, taskId) {
   if (!taskId) return;
@@ -151,7 +144,7 @@ export async function deleteFocusItem(userId, itemId) {
 }
 
 export async function getTeamFocusSummary(viewerId, { teamId, date } = {}) {
-  const viewer = await loadViewer(viewerId);
+  const viewer = await loadUserContext(viewerId);
   const memberIds = await getManagedMemberUserIds(viewerId, viewer, { teamId });
   if (!memberIds.length) throw new HttpError(403, "No team access for focus summary");
 

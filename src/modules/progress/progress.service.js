@@ -78,31 +78,40 @@ export async function getTeamCapacity(viewerId, { teamId } = {}) {
     distinct: ["userId"],
   });
 
+  const memberUserIds = members.map((m) => m.userId);
   const now = new Date();
-  const rows = await Promise.all(
-    members.map(async (m) => {
-      const [active, overdue] = await Promise.all([
-        prisma.projectTask.count({
-          where: {
-            status: { not: "DONE" },
-            assignees: { some: { userId: m.userId } },
-          },
-        }),
-        prisma.projectTask.count({
-          where: {
-            status: { not: "DONE" },
-            dueDate: { lt: now },
-            assignees: { some: { userId: m.userId } },
-          },
-        }),
-      ]);
-      const load = active + overdue * 2;
-      let heat = "low";
-      if (load >= 12) heat = "high";
-      else if (load >= 6) heat = "medium";
-      return { user: m.user, activeTasks: active, overdueTasks: overdue, load, heat };
-    }),
-  );
+
+  // Fetch all relevant tasks in 1 query instead of 2 per member
+  const activeTasks = await prisma.projectTask.findMany({
+    where: {
+      status: { not: "DONE" },
+      assignees: { some: { userId: { in: memberUserIds } } },
+    },
+    select: {
+      dueDate: true,
+      assignees: { where: { userId: { in: memberUserIds } }, select: { userId: true } },
+    },
+  });
+
+  const activeMap = new Map(memberUserIds.map((id) => [id, 0]));
+  const overdueMap = new Map(memberUserIds.map((id) => [id, 0]));
+  for (const task of activeTasks) {
+    const isOverdue = task.dueDate && new Date(task.dueDate) < now;
+    for (const a of task.assignees) {
+      activeMap.set(a.userId, (activeMap.get(a.userId) ?? 0) + 1);
+      if (isOverdue) overdueMap.set(a.userId, (overdueMap.get(a.userId) ?? 0) + 1);
+    }
+  }
+
+  const rows = members.map((m) => {
+    const active = activeMap.get(m.userId) ?? 0;
+    const overdue = overdueMap.get(m.userId) ?? 0;
+    const load = active + overdue * 2;
+    let heat = "low";
+    if (load >= 12) heat = "high";
+    else if (load >= 6) heat = "medium";
+    return { user: m.user, activeTasks: active, overdueTasks: overdue, load, heat };
+  });
 
   return rows.sort((a, b) => b.load - a.load);
 }

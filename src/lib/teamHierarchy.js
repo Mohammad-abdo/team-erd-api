@@ -65,16 +65,6 @@ export async function getManagedTeamIds(userId, user) {
     });
     return teams.map((t) => t.id);
   }
-  if (userIsTeamAdmin(user)) {
-    const leadIds = await getManagerTeamIds(userId);
-    const managed = new Set();
-    for (const tid of leadIds) {
-      for (const id of await getDescendantTeamIds(tid)) {
-        managed.add(id);
-      }
-    }
-    return [...managed];
-  }
   const leadIds = await getManagerTeamIds(userId);
   const managed = new Set();
   for (const tid of leadIds) {

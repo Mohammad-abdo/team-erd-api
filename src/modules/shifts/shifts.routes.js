@@ -24,6 +24,24 @@ r.post(
 );
 
 r.post(
+  "/pause",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shift = await shiftsService.pauseShift(req.user.sub);
+    res.json({ shift });
+  }),
+);
+
+r.post(
+  "/resume",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shift = await shiftsService.resumeShift(req.user.sub);
+    res.json({ shift });
+  }),
+);
+
+r.post(
   "/end",
   requireAuth,
   asyncHandler(async (req, res) => {
