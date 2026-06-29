@@ -56,12 +56,56 @@ function formatTask(row) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     completedAt: row.completedAt,
+    checklist: Array.isArray(row.checklist) ? row.checklist : [],
+    dependsOnIds: Array.isArray(row.dependsOnIds) ? row.dependsOnIds : [],
     isDelayed,
     project,
     teams: project?.teams ?? [],
     createdBy: row.createdBy,
     assignees: row.assignees.map((a) => a.user),
   };
+}
+
+function buildTaskWhere(projectIds, filters = {}) {
+  const {
+    assigneeId,
+    status,
+    teamId,
+    search,
+    priority,
+    dueFrom,
+    dueTo,
+    category,
+    viewerId,
+  } = filters;
+
+  const where = {
+    projectId: { in: projectIds },
+    ...(status ? { status } : {}),
+    ...(priority ? { priority } : {}),
+    ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
+    ...(teamId ? { project: { teamProjects: { some: { teamId } } } } : {}),
+    ...(category === "mine" && viewerId
+      ? { assignees: { some: { userId: viewerId } } }
+      : {}),
+  };
+
+  if (search?.trim()) {
+    const q = search.trim();
+    where.OR = [
+      { title: { contains: q } },
+      { description: { contains: q } },
+      { project: { name: { contains: q } } },
+    ];
+  }
+
+  if (dueFrom || dueTo) {
+    where.dueDate = {};
+    if (dueFrom) where.dueDate.gte = new Date(`${dueFrom}T00:00:00.000Z`);
+    if (dueTo) where.dueDate.lte = new Date(`${dueTo}T23:59:59.999Z`);
+  }
+
+  return where;
 }
 
 function projectAccessWhere(userId) {
@@ -137,18 +181,13 @@ function startOfToday() {
   return d;
 }
 
-export async function listTasksForUser(userId, { projectId, assigneeId, status } = {}) {
+export async function listTasksForUser(userId, filters = {}) {
+  const { projectId } = filters;
   const projectIds = await accessibleProjectIds(userId, projectId);
   if (!projectIds.length) return [];
 
   const rows = await prisma.projectTask.findMany({
-    where: {
-      projectId: { in: projectIds },
-      ...(status ? { status } : {}),
-      ...(assigneeId
-        ? { assignees: { some: { userId: assigneeId } } }
-        : {}),
-    },
+    where: buildTaskWhere(projectIds, { ...filters, viewerId: userId }),
     orderBy: [{ status: "asc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
     include: taskInclude,
   });
@@ -220,32 +259,60 @@ export async function getMemberProgress(userId, { teamId, projectId } = {}) {
   }));
 }
 
-export async function getTaskStats(userId, { projectId, assigneeId, teamId, search } = {}) {
-  const projectIds = await accessibleProjectIds(userId, projectId);
+export async function getTaskStats(userId, filters = {}) {
+  const projectIds = await accessibleProjectIds(userId, filters.projectId);
   const today = startOfToday();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
   const now = new Date();
 
   if (!projectIds.length) {
-    return { total: 0, inProgress: 0, completedToday: 0, delayed: 0, byStatus: {} };
+    return {
+      total: 0,
+      myTasks: 0,
+      focusToday: 0,
+      blocked: 0,
+      inProgress: 0,
+      completedToday: 0,
+      completedYesterday: 0,
+      delayed: 0,
+      byStatus: {},
+    };
   }
 
-  const where = {
-    projectId: { in: projectIds },
-    ...(assigneeId ? { assignees: { some: { userId: assigneeId } } } : {}),
-    ...(teamId ? { project: { teamProjects: { some: { teamId } } } } : {}),
-  };
-  if (search?.trim()) {
-    const q = search.trim();
-    where.OR = [
-      { title: { contains: q } },
-      { description: { contains: q } },
-    ];
-  }
-  const [total, inProgress, completedToday, delayed, grouped] = await Promise.all([
+  const where = buildTaskWhere(projectIds, { ...filters, viewerId: userId });
+  const focusDate = today;
+
+  const [
+    total,
+    myTasks,
+    focusToday,
+    inProgress,
+    completedToday,
+    completedYesterday,
+    delayed,
+    grouped,
+  ] = await Promise.all([
     prisma.projectTask.count({ where: { ...where, status: { not: TaskStatus.DONE } } }),
+    prisma.projectTask.count({
+      where: {
+        ...where,
+        status: { not: TaskStatus.DONE },
+        assignees: { some: { userId } },
+      },
+    }),
+    prisma.todayFocusItem.count({
+      where: { userId, focusDate, isDone: false },
+    }),
     prisma.projectTask.count({ where: { ...where, status: TaskStatus.IN_PROGRESS } }),
     prisma.projectTask.count({
       where: { ...where, completedAt: { gte: today } },
+    }),
+    prisma.projectTask.count({
+      where: {
+        ...where,
+        completedAt: { gte: yesterday, lt: today },
+      },
     }),
     prisma.projectTask.count({
       where: {
@@ -265,7 +332,17 @@ export async function getTaskStats(userId, { projectId, assigneeId, teamId, sear
     grouped.map((g) => [g.status, g._count._all]),
   );
 
-  return { total, inProgress, completedToday, delayed, byStatus };
+  return {
+    total,
+    myTasks,
+    focusToday,
+    blocked: 0,
+    inProgress,
+    completedToday,
+    completedYesterday,
+    delayed,
+    byStatus,
+  };
 }
 
 export async function getTask(projectId, taskId) {
@@ -281,17 +358,31 @@ export async function getTask(projectId, taskId) {
     },
   });
   if (!row) throw new HttpError(404, "Task not found");
-  return {
+  const formatted = {
     ...formatTask(row),
     progressLogs: row.progressLogs.map((l) => ({
       id: l.id,
       progress: l.progress,
+      hours: l.hours,
       note: l.note,
       logDate: l.logDate,
       loggedAt: l.loggedAt,
       user: l.user,
     })),
   };
+
+  const depIds = formatted.dependsOnIds ?? [];
+  if (depIds.length) {
+    const deps = await prisma.projectTask.findMany({
+      where: { id: { in: depIds }, projectId },
+      select: { id: true, title: true, status: true },
+    });
+    formatted.dependencies = deps;
+  } else {
+    formatted.dependencies = [];
+  }
+
+  return formatted;
 }
 
 export async function createTask(projectId, userId, input) {
@@ -364,6 +455,8 @@ export async function updateTask(projectId, taskId, userId, input) {
   if (input.description !== undefined) data.description = input.description?.trim() || null;
   if (input.priority !== undefined) data.priority = input.priority;
   if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+  if (input.checklist !== undefined) data.checklist = input.checklist;
+  if (input.dependsOnIds !== undefined) data.dependsOnIds = input.dependsOnIds;
   if (input.dueDate !== undefined) {
     data.dueDate = input.dueDate ? new Date(input.dueDate) : null;
   }
@@ -456,22 +549,28 @@ export async function logTaskProgress(projectId, taskId, userId, input) {
       data: {
         taskId,
         userId,
-        progress: input.progress,
+        progress: input.progress ?? task.progress,
+        hours: input.hours ?? null,
         note: input.note?.trim() || null,
         logDate,
       },
       include: { user: { select: { id: true, name: true, avatar: true } } },
     });
 
-    const updates = { progress: input.progress };
-    if (input.progress >= 100) {
+    const updates = {};
+    if (input.progress !== undefined) updates.progress = input.progress;
+    if (input.progress !== undefined && input.progress >= 100) {
       updates.status = TaskStatus.DONE;
       updates.completedAt = new Date();
     } else if (task.status === TaskStatus.TODO && input.progress > 0) {
       updates.status = TaskStatus.IN_PROGRESS;
+    } else if (input.hours && input.progress === undefined) {
+      // hours-only log keeps task progress unchanged
     }
 
-    await tx.projectTask.update({ where: { id: taskId }, data: updates });
+    if (Object.keys(updates).length) {
+      await tx.projectTask.update({ where: { id: taskId }, data: updates });
+    }
 
     return entry;
   });

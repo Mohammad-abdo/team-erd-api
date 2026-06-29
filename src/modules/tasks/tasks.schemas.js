@@ -20,10 +20,19 @@ export const updateTaskSchema = z.object({
   dueDate: z.string().datetime().optional().nullable(),
   sortOrder: z.coerce.number().int().optional(),
   assigneeIds: z.array(z.string().min(1)).max(20).optional(),
+  checklist: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1).max(300),
+    done: z.boolean(),
+  })).max(100).optional(),
+  dependsOnIds: z.array(z.string().min(1)).max(20).optional(),
 });
 
 export const logProgressSchema = z.object({
-  progress: z.coerce.number().int().min(0).max(100),
+  progress: z.coerce.number().int().min(0).max(100).optional(),
+  hours: z.coerce.number().min(0).max(24).optional(),
   note: z.string().max(2000).optional(),
   logDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).refine((v) => v.progress !== undefined || v.hours !== undefined, {
+  message: "progress or hours is required",
 });

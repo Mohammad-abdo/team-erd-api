@@ -68,6 +68,10 @@ export const getBoard = asyncHandler(async (req, res) => {
     teamId: req.query.teamId,
     status: req.query.status,
     search: req.query.search,
+    priority: req.query.priority,
+    dueFrom: req.query.dueFrom,
+    dueTo: req.query.dueTo,
+    category: req.query.category,
   });
   res.json(board);
 });
@@ -86,6 +90,10 @@ export const getStats = asyncHandler(async (req, res) => {
     assigneeId: req.query.assigneeId,
     teamId: req.query.teamId,
     search: req.query.search,
+    priority: req.query.priority,
+    dueFrom: req.query.dueFrom,
+    dueTo: req.query.dueTo,
+    category: req.query.category,
   });
   res.json(stats);
 });

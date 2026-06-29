@@ -47,6 +47,11 @@ async function assertCommentTarget(projectId, type, id) {
     if (!row) {
       throw new HttpError(404, "Comment target not found");
     }
+  } else if (type === CommentableType.TASK) {
+    const row = await prisma.projectTask.findFirst({ where: { id, projectId } });
+    if (!row) {
+      throw new HttpError(404, "Comment target not found");
+    }
   }
 }
 

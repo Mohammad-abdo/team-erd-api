@@ -53,6 +53,7 @@ enum CommentableType {
   ERD_TABLE
   ERD_RELATION
   API_ROUTE
+  TASK
 }
 
 enum PermissionResource {
@@ -921,6 +922,8 @@ model ProjectTask {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
   completedAt DateTime?    @map("completed_at")
+  checklist   Json?
+  dependsOnIds Json?       @map("depends_on_ids")
 
   project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy    User              @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -952,6 +955,7 @@ model TaskProgressLog {
   taskId   String   @map("task_id")
   userId   String   @map("user_id")
   progress Int
+  hours    Float?
   note     String?  @db.Text
   logDate  DateTime @map("log_date") @db.Date
   loggedAt DateTime @default(now()) @map("logged_at")
