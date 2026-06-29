@@ -19,6 +19,7 @@ import { startAccessExpiryCron } from "./jobs/accessExpiryCron.js";
 
 import authRoutes from "./modules/auth/auth.routes.js";
 import usersRoutes from "./modules/users/users.routes.js";
+import projectAttachmentsRoutes from "./modules/projects/attachments.routes.js";
 import projectsRoutes from "./modules/projects/projects.routes.js";
 import projectMembersRoutes from "./modules/projects/members.routes.js";
 import erdRoutes from "./modules/erd/erd.routes.js";
@@ -48,6 +49,8 @@ import { startMeetingReminderCron } from "./jobs/meetingReminderCron.js";
 import aiTeamRoutes from "./modules/ai/ai.team.routes.js";
 import shiftsRoutes from "./modules/shifts/shifts.routes.js";
 import focusRoutes from "./modules/focus/focus.routes.js";
+import performanceRoutes from "./modules/performance/performance.routes.js";
+import apiStudioRoutes from "./modules/apiStudio/apiStudio.routes.js";
 import {
   accessRequestProjectRoutes,
   accessRequestRoutes,
@@ -164,11 +167,13 @@ mount("/api/invitations", invitationsRoutes);
 /* Portfolio at /api/report/portfolio — avoid mounting a router on bare /api. */
 mount("/api/report", reportRoutes);
 
+mount("/api/projects/:projectId/attachments", projectAttachmentsRoutes);
 mount("/api/projects/:projectId/members", projectMembersRoutes);
 mount("/api/projects/:projectId/access-requests", accessRequestProjectRoutes);
 mount("/api/projects/:projectId/permissions", permissionsRoutes);
 mount("/api/projects/:projectId/erd", erdRoutes);
 mount("/api/projects/:projectId/api", apiDocsRoutes);
+mount("/api/projects/:projectId/api-studio", apiStudioRoutes);
 mount("/api/projects/:projectId/comments", commentsRoutes);
 mount("/api/projects/:projectId/activity", activityRoutes);
 mount("/api/projects/:projectId/export", exportRoutes);
@@ -185,6 +190,7 @@ mount("/api/tasks", tasksGlobalRoutes);
 mount("/api/daily-tasks", dailyTasksGlobalRoutes);
 mount("/api/members", membersRoutes);
 mount("/api/progress", progressRoutes);
+mount("/api/performance", performanceRoutes);
 mount("/api/shifts", shiftsRoutes);
 mount("/api/focus", focusRoutes);
 mount("/api/ai/team", aiTeamRoutes);

@@ -38,16 +38,16 @@ export async function assertTeamManager(userId, teamId) {
     const member = await prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
-    if (member?.role === TeamRole.TEAM_LEAD) {
+    if (member?.role === TeamRole.TEAM_LEAD || member?.role === TeamRole.PROJECT_MANAGER) {
       return { isAdmin: false, member };
     }
-    throw new HttpError(403, "Team admin must be team lead on this team");
+    throw new HttpError(403, "Team admin must be team lead or project manager on this team");
   }
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
   });
-  if (!member || member.role !== TeamRole.TEAM_LEAD) {
-    throw new HttpError(403, "Team lead or organization admin required");
+  if (!member || (member.role !== TeamRole.TEAM_LEAD && member.role !== TeamRole.PROJECT_MANAGER)) {
+    throw new HttpError(403, "Team manager or organization admin required");
   }
   return { isAdmin: false, member };
 }

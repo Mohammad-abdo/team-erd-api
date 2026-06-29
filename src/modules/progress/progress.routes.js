@@ -15,6 +15,17 @@ r.get(
 );
 
 r.get(
+  "/capacity",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const members = await progressService.getTeamCapacity(req.user.sub, {
+      teamId: req.query.teamId,
+    });
+    res.json({ members });
+  }),
+);
+
+r.get(
   "/team",
   requireAuth,
   asyncHandler(async (req, res) => {

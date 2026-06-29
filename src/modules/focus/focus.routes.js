@@ -14,6 +14,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   isDone: z.boolean().optional(),
+  syncTask: z.boolean().optional(),
 });
 
 const reorderSchema = z.object({
@@ -29,6 +30,18 @@ r.get(
   asyncHandler(async (req, res) => {
     const items = await focusService.listTodayFocus(req.user.sub, { date: req.query.date });
     res.json({ items });
+  }),
+);
+
+r.get(
+  "/team",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const summary = await focusService.getTeamFocusSummary(req.user.sub, {
+      teamId: req.query.teamId,
+      date: req.query.date,
+    });
+    res.json(summary);
   }),
 );
 

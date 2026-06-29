@@ -41,4 +41,31 @@ r.get(
   }),
 );
 
+r.get(
+  "/team",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const board = await shiftsService.getTeamShiftBoard(req.user.sub, {
+      teamId: req.query.teamId,
+      date: req.query.date,
+    });
+    res.json(board);
+  }),
+);
+
+r.get(
+  "/export",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const csv = await shiftsService.exportTeamShiftsCsv(req.user.sub, {
+      teamId: req.query.teamId,
+      from: req.query.from,
+      to: req.query.to,
+    });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=shifts-export.csv");
+    res.send(csv);
+  }),
+);
+
 export default r;

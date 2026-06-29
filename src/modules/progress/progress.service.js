@@ -59,3 +59,50 @@ export async function getTeamProgressInsights(viewerId) {
 
   return rows.filter(Boolean);
 }
+
+export async function getTeamCapacity(viewerId, { teamId } = {}) {
+  const user = await prisma.user.findUnique({
+    where: { id: viewerId },
+    select: { platformRole: true, organizationId: true },
+  });
+  let managedTeamIds = await getManagedTeamIds(viewerId, user);
+  if (teamId) {
+    if (!managedTeamIds.includes(teamId)) throw new HttpError(403, "No access to this team");
+    managedTeamIds = [teamId];
+  }
+  if (!managedTeamIds.length) throw new HttpError(403, "Team manager access required");
+
+  const members = await prisma.teamMember.findMany({
+    where: { teamId: { in: managedTeamIds } },
+    select: { userId: true, user: { select: { id: true, name: true, avatar: true } } },
+    distinct: ["userId"],
+  });
+
+  const now = new Date();
+  const rows = await Promise.all(
+    members.map(async (m) => {
+      const [active, overdue] = await Promise.all([
+        prisma.projectTask.count({
+          where: {
+            status: { not: "DONE" },
+            assignees: { some: { userId: m.userId } },
+          },
+        }),
+        prisma.projectTask.count({
+          where: {
+            status: { not: "DONE" },
+            dueDate: { lt: now },
+            assignees: { some: { userId: m.userId } },
+          },
+        }),
+      ]);
+      const load = active + overdue * 2;
+      let heat = "low";
+      if (load >= 12) heat = "high";
+      else if (load >= 6) heat = "medium";
+      return { user: m.user, activeTasks: active, overdueTasks: overdue, load, heat };
+    }),
+  );
+
+  return rows.sort((a, b) => b.load - a.load);
+}

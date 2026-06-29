@@ -106,6 +106,8 @@ export async function createProject(userId, input) {
   const slug = await uniqueSlug(input.name);
   const organizationId = await getUserOrganizationId(userId);
 
+  const emptyUrl = (v) => (v === "" ? null : v ?? null);
+
   const project = await prisma.$transaction(async (tx) => {
     const p = await tx.project.create({
       data: {
@@ -115,6 +117,14 @@ export async function createProject(userId, input) {
         visibility: input.visibility,
         leaderId: userId,
         organizationId: organizationId ?? DEFAULT_ORG_ID,
+        startDate: new Date(input.startDate),
+        deadline: new Date(input.deadline),
+        clientRequirements: input.clientRequirements?.trim() ?? null,
+        examplesJson: input.examplesJson ?? null,
+        figmaUrl: emptyUrl(input.figmaUrl),
+        githubUrl: emptyUrl(input.githubUrl),
+        liveUrl: emptyUrl(input.liveUrl),
+        docsUrl: emptyUrl(input.docsUrl),
       },
     });
 
@@ -208,6 +218,12 @@ export async function updateProject(projectId, userId, input) {
         description: input.description === null ? null : input.description.trim(),
       }),
       ...(input.visibility !== undefined && { visibility: input.visibility }),
+      ...(input.startDate !== undefined && { startDate: new Date(input.startDate) }),
+      ...(input.deadline !== undefined && { deadline: new Date(input.deadline) }),
+      ...(input.clientRequirements !== undefined && {
+        clientRequirements: input.clientRequirements === null ? null : input.clientRequirements.trim(),
+      }),
+      ...(input.examplesJson !== undefined && { examplesJson: input.examplesJson }),
       ...(input.figmaUrl !== undefined && { figmaUrl: urlField(input.figmaUrl) }),
       ...(input.githubUrl !== undefined && { githubUrl: urlField(input.githubUrl) }),
       ...(input.liveUrl !== undefined && { liveUrl: urlField(input.liveUrl) }),

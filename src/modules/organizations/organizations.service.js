@@ -54,6 +54,46 @@ export async function registerOrganization(input) {
   };
 }
 
+export async function getOrgSettings(userId) {
+  const actor = await loadAdminActor(userId);
+  const org = await prisma.organization.findUnique({
+    where: { id: actor.organizationId ?? DEFAULT_ORG_ID },
+  });
+  if (!org) throw new HttpError(404, "Organization not found");
+  return org;
+}
+
+export async function patchOrgSettings(userId, input) {
+  const actor = await loadAdminActor(userId);
+  const orgId = actor.organizationId ?? DEFAULT_ORG_ID;
+  const current = await prisma.organization.findUnique({ where: { id: orgId } });
+  if (!current) throw new HttpError(404, "Organization not found");
+
+  const settings = {
+    ...(typeof current.settings === "object" && current.settings ? current.settings : {}),
+    ...(input.settings ?? {}),
+  };
+
+  return prisma.organization.update({
+    where: { id: orgId },
+    data: {
+      ...(input.name !== undefined && { name: input.name.trim() }),
+      settings,
+    },
+  });
+}
+
+export const patchOrgSettingsSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  settings: z.object({
+    logoUrl: z.string().max(500).optional(),
+    timezone: z.string().max(80).optional(),
+    invitePolicy: z.enum(["open", "admin_only"]).optional(),
+    shiftRequired: z.boolean().optional(),
+    voiceNotifications: z.boolean().optional(),
+  }).optional(),
+});
+
 export async function getOrganization(orgId) {
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
   if (!org) throw new HttpError(404, "Organization not found");
@@ -76,7 +116,7 @@ export const createTeamAccountSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
   teamId: z.string().min(1),
-  teamRole: z.enum(["MEMBER", "TEAM_LEAD"]).optional(),
+  teamRole: z.enum(["MEMBER", "TEAM_LEAD", "PROJECT_MANAGER"]).optional(),
 });
 
 /** ORG_ADMIN creates a team-scoped account (TEAM_ADMIN) with fewer powers than company admin. */

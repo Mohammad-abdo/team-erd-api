@@ -1,4 +1,4 @@
-import { TaskStatus, TeamRole } from "@prisma/client";
+import { PlatformRole, TaskStatus, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { sendEmail, isEmailConfigured } from "../../lib/email.js";
@@ -11,7 +11,7 @@ function startOfToday() {
 }
 
 async function memberDigestRow(userId, weekAgo, today) {
-  const [user, projectTasks, dailyPending, dailyWeek] = await Promise.all([
+  const [user, projectTasks, dailyPending, dailyWeek, shiftHours] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, email: true },
@@ -36,6 +36,10 @@ async function memberDigestRow(userId, weekAgo, today) {
       where: { assigneeId: userId, taskDate: { gte: weekAgo } },
       _count: { _all: true },
     }),
+    prisma.workShift.findMany({
+      where: { userId, startedAt: { gte: weekAgo } },
+      select: { startedAt: true, endedAt: true },
+    }),
   ]);
 
   if (!user) return null;
@@ -43,6 +47,10 @@ async function memberDigestRow(userId, weekAgo, today) {
   const now = new Date();
   const overdue = projectTasks.filter((t) => t.dueDate && new Date(t.dueDate) < now).length;
   const dailyDone = dailyWeek.find((r) => r.status === TaskStatus.DONE)?._count._all ?? 0;
+  const weekShiftHours = shiftHours.reduce((sum, s) => {
+    const end = s.endedAt ? new Date(s.endedAt) : new Date();
+    return sum + Math.max(0, (end - new Date(s.startedAt)) / 3600000);
+  }, 0);
 
   return {
     user,
@@ -50,6 +58,7 @@ async function memberDigestRow(userId, weekAgo, today) {
     overdue,
     dailyPending,
     dailyDone,
+    weekShiftHours: Math.round(weekShiftHours * 10) / 10,
     sampleTasks: projectTasks.slice(0, 3).map((t) => ({
       title: t.title,
       project: t.project?.name,
@@ -68,7 +77,7 @@ function buildDigestHtml(team, rows, weekLabel) {
         <div style="margin-bottom:16px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
           <strong>${row.user.name}</strong>
           <p style="margin:4px 0;color:#64748b;font-size:13px;">
-            ${row.activeTasks} active · ${row.overdue} overdue · ${row.dailyPending} daily pending · ${row.dailyDone} daily done (${weekLabel})
+            ${row.activeTasks} active · ${row.overdue} overdue · ${row.dailyPending} daily pending · ${row.dailyDone} daily done · ${row.weekShiftHours}h shifts (${weekLabel})
           </p>
           ${tasks ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:13px;">${tasks}</ul>` : ""}
         </div>`;
@@ -89,7 +98,7 @@ function buildDigestText(team, rows, weekLabel) {
   for (const row of rows) {
     lines.push(`${row.user.name}`);
     lines.push(
-      `  ${row.activeTasks} active, ${row.overdue} overdue, ${row.dailyPending} daily pending, ${row.dailyDone} daily done`,
+      `  ${row.activeTasks} active, ${row.overdue} overdue, ${row.dailyPending} daily pending, ${row.dailyDone} daily done, ${row.weekShiftHours}h shifts`,
     );
     for (const t of row.sampleTasks) {
       lines.push(`  - ${t.title} (${t.project ?? "—"}, ${t.status})`);
@@ -157,7 +166,7 @@ export async function sendAutomatedTeamWeeklyDigest(teamId) {
     where: { id: teamId },
     include: {
       members: {
-        where: { role: TeamRole.TEAM_LEAD },
+        where: { role: { in: [TeamRole.TEAM_LEAD, TeamRole.PROJECT_MANAGER] } },
         include: { user: { select: { id: true, email: true, name: true } } },
       },
     },
@@ -190,19 +199,47 @@ export async function runScheduledWeeklyDigests() {
     return { teams: 0, emailsSent: 0, skipped: true, reason: "email_not_configured" };
   }
 
-  const teams = await prisma.team.findMany({ select: { id: true, name: true } });
+  const orgAdmins = await prisma.user.findMany({
+    where: { platformRole: PlatformRole.ORG_ADMIN, isActive: true },
+    select: { id: true, email: true, name: true, organizationId: true },
+  });
+
+  const teams = await prisma.team.findMany({ select: { id: true, name: true, organizationId: true } });
   let emailsSent = 0;
   let teamsSent = 0;
+  const emailed = new Set();
 
   for (const team of teams) {
     try {
       const result = await sendAutomatedTeamWeeklyDigest(team.id);
       if (result.sent) {
         teamsSent += 1;
-        emailsSent += result.recipients?.length ?? 0;
+        for (const email of result.recipients ?? []) {
+          if (!emailed.has(email)) {
+            emailed.add(email);
+            emailsSent += 1;
+          }
+        }
       }
     } catch (err) {
       console.error(`[weekly-digest] Failed for team ${team.name} (${team.id}):`, err.message);
+    }
+  }
+
+  for (const admin of orgAdmins) {
+    if (!admin.email || emailed.has(admin.email) || !admin.organizationId) continue;
+    const orgTeams = teams.filter((t) => t.organizationId === admin.organizationId);
+    if (!orgTeams.length) continue;
+    try {
+      const digest = await buildTeamDigest(orgTeams[0].id);
+      const subject = `Organization weekly digest`;
+      const text = buildDigestText({ name: "Your organization" }, digest.rows, digest.weekLabel);
+      const html = buildDigestHtml({ name: "Your organization" }, digest.rows, digest.weekLabel);
+      await sendEmail({ to: admin.email, subject, text, html });
+      emailed.add(admin.email);
+      emailsSent += 1;
+    } catch (err) {
+      console.error(`[weekly-digest] Org admin digest failed for ${admin.email}:`, err.message);
     }
   }
 

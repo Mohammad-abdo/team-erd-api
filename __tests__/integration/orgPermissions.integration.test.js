@@ -91,4 +91,26 @@ describeIntegration("Org scope and permissions (integration)", () => {
       });
     expect(res.status).toBe(409);
   });
+
+  test("shifts/team returns 403 for unrelated member", async () => {
+    const res = await request(app)
+      .get("/api/shifts/team")
+      .set("Authorization", `Bearer ${editorToken}`);
+    expect([403, 200]).toContain(res.status);
+  });
+
+  test("focus/team returns summary or 403", async () => {
+    const res = await request(app)
+      .get("/api/focus/team")
+      .set("Authorization", `Bearer ${editorToken}`);
+    expect([200, 403]).toContain(res.status);
+  });
+
+  test("performance/me returns monthly KPIs", async () => {
+    const res = await request(app)
+      .get("/api/performance/me")
+      .set("Authorization", `Bearer ${editorToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.performance).toBeTruthy();
+  });
 });

@@ -85,6 +85,7 @@ enum AccessRequestStatus {
 }
 
 enum TeamRole {
+  PROJECT_MANAGER
   TEAM_LEAD
   MEMBER
 }
@@ -114,10 +115,12 @@ model Organization {
   settings  Json?
   createdAt DateTime @default(now()) @map("created_at")
 
-  users    User[]
-  teams    Team[]
-  projects Project[]
-  workShifts WorkShift[]
+  users       User[]
+  teams       Team[]
+  projects    Project[]
+  workShifts  WorkShift[]
+  invitations OrganizationInvitation[]
+  auditLogs   AdminAuditLog[]
 
   @@map("organizations")
 }
@@ -154,6 +157,7 @@ model User {
   permissions      ProjectPermission[] @relation("PermissionUser")
   permissionsGranted ProjectPermission[] @relation("PermissionGrantedBy")
   apiTestSettings  ApiTestSetting[]
+  apiRequestHistory ApiRequestHistory[]
   teamMemberships  TeamMember[]
   teamsCreated     Team[]           @relation("TeamCreatedBy")
   adminAudits      AdminAuditLog[]  @relation("AdminAuditActor")
@@ -180,6 +184,8 @@ model User {
   meetingRemindersCreated MeetingReminder[]        @relation("MeetingReminderCreatedBy")
   workShifts              WorkShift[]
   todayFocusItems         TodayFocusItem[]
+  projectAttachments      ProjectAttachment[] @relation("ProjectAttachmentUploadedBy")
+  orgInvitationsSent      OrganizationInvitation[] @relation("OrgInvitationInvitedBy")
 
   @@index([organizationId])
   @@map("users")
@@ -234,16 +240,21 @@ model Project {
   visibility     ProjectVisibility @default(PRIVATE)
   healthStage    String?           @map("health_stage") @db.VarChar(30)
   lastActivityAt DateTime?         @map("last_activity_at")
-  figmaUrl       String?           @map("figma_url") @db.VarChar(500)
-  githubUrl      String?           @map("github_url") @db.VarChar(500)
-  liveUrl        String?           @map("live_url") @db.VarChar(500)
-  docsUrl        String?           @map("docs_url") @db.VarChar(500)
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  figmaUrl           String?           @map("figma_url") @db.VarChar(500)
+  githubUrl          String?           @map("github_url") @db.VarChar(500)
+  liveUrl            String?           @map("live_url") @db.VarChar(500)
+  docsUrl            String?           @map("docs_url") @db.VarChar(500)
+  startDate          DateTime?         @map("start_date") @db.Date
+  deadline           DateTime?         @db.Date
+  clientRequirements String?           @map("client_requirements") @db.Text
+  examplesJson       Json?             @map("examples_json")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
 
   leader       User          @relation("ProjectLeader", fields: [leaderId], references: [id], onDelete: Restrict)
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
+  attachments  ProjectAttachment[]
   members      ProjectMember[]
   invitations  ProjectInvitation[]
   erdTables    ErdTable[]
@@ -253,6 +264,7 @@ model Project {
   activityLogs    ActivityLog[]
   permissions     ProjectPermission[]
   apiTestSettings ApiTestSetting[]
+  apiRequestHistory ApiRequestHistory[]
   teamProjects    TeamProject[]
   erdSnapshots    ErdSnapshot[]
   webhooks        ProjectWebhook[]
@@ -360,6 +372,7 @@ model Team {
   memberRatings   MemberRating[]
   dailyReports    DailyReport[]
   meetingReminders MeetingReminder[]
+  orgInvitations   OrganizationInvitation[]
 
   @@index([organizationId])
   @@index([parentTeamId])
@@ -396,18 +409,61 @@ model TeamProject {
 }
 
 model AdminAuditLog {
-  id         String   @id @default(cuid())
-  userId     String   @map("user_id")
-  action     String   @db.VarChar(80)
-  entityType String   @map("entity_type") @db.VarChar(80)
-  entityId   String?  @map("entity_id")
-  meta       Json?
-  createdAt  DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  organizationId String?  @map("organization_id")
+  action         String   @db.VarChar(80)
+  entityType     String   @map("entity_type") @db.VarChar(80)
+  entityId       String?  @map("entity_id")
+  meta           Json?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  user User @relation("AdminAuditActor", fields: [userId], references: [id], onDelete: Cascade)
+  user         User          @relation("AdminAuditActor", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("admin_audit_logs")
+}
+
+model ProjectAttachment {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  kind         String   @db.VarChar(40)
+  fileName     String   @map("file_name") @db.VarChar(255)
+  storedPath   String   @map("stored_path") @db.VarChar(500)
+  mimeType     String   @map("mime_type") @db.VarChar(120)
+  sizeBytes    Int      @map("size_bytes")
+  uploadedById String   @map("uploaded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy User    @relation("ProjectAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@map("project_attachments")
+}
+
+model OrganizationInvitation {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  email          String       @db.VarChar(255)
+  token          String       @unique @db.VarChar(128)
+  platformRole   PlatformRole @default(MEMBER) @map("platform_role")
+  teamId         String?      @map("team_id")
+  teamRole       TeamRole?    @map("team_role")
+  expiresAt      DateTime     @map("expires_at")
+  acceptedAt     DateTime?    @map("accepted_at")
+  invitedById    String       @map("invited_by")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team         Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  invitedBy    User         @relation("OrgInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("organization_invitations")
 }
 
 model ProjectTemplate {
@@ -639,17 +695,21 @@ model ErdRelation {
 }
 
 model ApiGroup {
-  id          String   @id @default(cuid())
-  projectId   String   @map("project_id")
-  name        String
-  prefix      String   @default("")
-  description String?  @db.Text
-  sortOrder   Int      @default(0) @map("sort_order")
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  parentGroupId String? @map("parent_group_id")
+  name         String
+  prefix       String   @default("")
+  description  String?  @db.Text
+  sortOrder    Int      @default(0) @map("sort_order")
 
-  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  routes  ApiRoute[]
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentGroup ApiGroup?  @relation("ApiGroupHierarchy", fields: [parentGroupId], references: [id], onDelete: SetNull)
+  childGroups ApiGroup[] @relation("ApiGroupHierarchy")
+  routes      ApiRoute[]
 
   @@index([projectId])
+  @@index([parentGroupId])
   @@map("api_groups")
 }
 
@@ -810,6 +870,25 @@ model ApiTestSetting {
   @@map("api_test_settings")
 }
 
+model ApiRequestHistory {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  userId       String   @map("user_id")
+  method       String   @db.VarChar(10)
+  url          String   @db.VarChar(2000)
+  requestJson  Json     @map("request_json")
+  responseJson Json?    @map("response_json")
+  statusCode   Int?     @map("status_code")
+  durationMs   Int?     @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, userId, createdAt])
+  @@map("api_request_history")
+}
+
 model ProjectPermission {
   id         String             @id @default(cuid())
   projectId  String             @map("project_id")
@@ -847,6 +926,7 @@ model ProjectTask {
   createdBy    User              @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   assignees    TaskAssignee[]
   progressLogs TaskProgressLog[]
+  focusItems   TodayFocusItem[]
 
   @@index([projectId, status])
   @@index([projectId, dueDate])
@@ -1093,8 +1173,10 @@ model TodayFocusItem {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task ProjectTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([userId, focusDate, sortOrder])
+  @@index([taskId])
   @@map("today_focus_items")
 }

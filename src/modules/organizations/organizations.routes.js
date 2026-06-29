@@ -5,8 +5,34 @@ import * as orgService from "./organizations.service.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireSuperAdmin } from "../../middleware/adminAccess.js";
 import { requireOrgAdmin } from "../../middleware/adminAccess.js";
+import orgInvitationsRoutes from "./invitations.routes.js";
+import orgExportRoutes from "./export.routes.js";
 
 const r = Router();
+
+r.use("/invitations", orgInvitationsRoutes);
+r.use("/export", orgExportRoutes);
+
+r.get(
+  "/me/settings",
+  requireAuth,
+  requireOrgAdmin,
+  asyncHandler(async (req, res) => {
+    const organization = await orgService.getOrgSettings(req.user.sub);
+    res.json({ organization });
+  }),
+);
+
+r.patch(
+  "/me/settings",
+  requireAuth,
+  requireOrgAdmin,
+  validate(orgService.patchOrgSettingsSchema),
+  asyncHandler(async (req, res) => {
+    const organization = await orgService.patchOrgSettings(req.user.sub, req.body);
+    res.json({ organization });
+  }),
+);
 
 r.post(
   "/register",
