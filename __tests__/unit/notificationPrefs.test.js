@@ -24,4 +24,16 @@ describe("notificationPrefs", () => {
     expect(shouldNotify({ commentMention: true }, "comment_mention")).toBe(true);
     expect(shouldNotify(null, "unknown_type")).toBe(true);
   });
+
+  test("mergeNotificationPrefs includes voice defaults", () => {
+    const prefs = mergeNotificationPrefs(null);
+    expect(prefs.voiceEnabled).toBe(false);
+    expect(prefs.voiceLocale).toBe("ar-EG");
+    expect(prefs.meetingReminder).toBe(true);
+  });
+
+  test("patchNotificationPrefs updates voiceEnabled", () => {
+    const next = patchNotificationPrefs(null, { voiceEnabled: true });
+    expect(next.voiceEnabled).toBe(true);
+  });
 });

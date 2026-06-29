@@ -4,6 +4,8 @@ import { HttpError } from "../../utils/httpError.js";
 import { slugify } from "../../utils/slug.js";
 import { logAdminAudit } from "../../lib/audit.js";
 import { isOrgAdmin, isSuperAdmin } from "../../middleware/adminAccess.js";
+import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause } from "../../lib/orgScope.js";
+import { getDescendantTeamIds } from "../../lib/teamHierarchy.js";
 
 async function uniqueTeamSlug(base) {
   let slug = slugify(base);
@@ -35,6 +37,8 @@ function mapTeam(team) {
     description: team.description,
     color: team.color,
     icon: team.icon,
+    organizationId: team.organizationId ?? null,
+    parentTeamId: team.parentTeamId ?? null,
     createdAt: team.createdAt,
     memberCount: team._count?.members ?? team.members?.length ?? 0,
     projectCount: team._count?.projects ?? team.projects?.length ?? 0,
@@ -55,9 +59,14 @@ function mapTeam(team) {
 }
 
 export async function listTeamsForUser(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true, organizationId: true },
+  });
   const admin = await isOrgAdmin(userId);
   if (admin) {
     const teams = await prisma.team.findMany({
+      where: orgWhereClause(user),
       orderBy: { name: "asc" },
       include: {
         _count: { select: { members: true, projects: true } },
@@ -94,9 +103,23 @@ export async function getTeam(teamId) {
 }
 
 export async function createTeam(userId, input) {
-  if (!(await isSuperAdmin(userId))) {
-    throw new HttpError(403, "Only platform admin can create teams");
+  const orgId = await getUserOrganizationId(userId);
+  let parentTeamId = input.parentTeamId ?? null;
+
+  if (parentTeamId) {
+    await assertTeamManager(userId, parentTeamId);
+    const parent = await prisma.team.findUnique({
+      where: { id: parentTeamId },
+      select: { organizationId: true },
+    });
+    if (!parent) throw new HttpError(404, "Parent team not found");
+    if (parent.organizationId && parent.organizationId !== orgId && !(await isSuperAdmin(userId))) {
+      throw new HttpError(403, "Parent team is in another organization");
+    }
+  } else if (!(await isSuperAdmin(userId)) && !(await isOrgAdmin(userId))) {
+    throw new HttpError(403, "Only platform or org admin can create root teams");
   }
+
   const slug = await uniqueTeamSlug(input.name);
   const team = await prisma.team.create({
     data: {
@@ -105,9 +128,17 @@ export async function createTeam(userId, input) {
       description: input.description?.trim() ?? null,
       color: input.color ?? "#0d9488",
       icon: input.icon ?? null,
+      organizationId: orgId ?? DEFAULT_ORG_ID,
+      parentTeamId,
       createdById: userId,
     },
     include: { _count: { select: { members: true, projects: true } } },
+  });
+
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team.id, userId } },
+    create: { teamId: team.id, userId, role: TeamRole.TEAM_LEAD },
+    update: { role: TeamRole.TEAM_LEAD },
   });
   await logAdminAudit({
     userId,

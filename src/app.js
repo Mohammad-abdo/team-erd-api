@@ -42,10 +42,10 @@ import tasksRoutes from "./modules/tasks/tasks.routes.js";
 import tasksGlobalRoutes from "./modules/tasks/tasks.global.routes.js";
 import dailyTasksGlobalRoutes from "./modules/dailyTasks/daily-tasks.global.routes.js";
 import membersRoutes from "./modules/members/members.routes.js";
-import {
-  accessRequestProjectRoutes,
-  accessRequestRoutes,
-} from "./modules/accessRequests/accessRequests.routes.js";
+import organizationsRoutes from "./modules/organizations/organizations.routes.js";
+import progressRoutes from "./modules/progress/progress.routes.js";
+import { startMeetingReminderCron } from "./jobs/meetingReminderCron.js";
+import aiTeamRoutes from "./modules/ai/ai.team.routes.js";
 
 const app = express();
 
@@ -147,6 +147,7 @@ const authLimiter = rateLimit({
   skip: skipRateLimitInDev,
 });
 mount("/api/auth", authLimiter, authRoutes);
+mount("/api/organizations", organizationsRoutes);
 mount("/api/admin", adminRoutes);
 mount("/api/teams", teamsRoutes);
 mount("/api/search", searchRoutes);
@@ -177,6 +178,8 @@ mount("/api/notifications", notificationsRoutes);
 mount("/api/tasks", tasksGlobalRoutes);
 mount("/api/daily-tasks", dailyTasksGlobalRoutes);
 mount("/api/members", membersRoutes);
+mount("/api/progress", progressRoutes);
+mount("/api/ai/team", aiTeamRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
@@ -207,6 +210,7 @@ if (process.env.NODE_ENV !== "test") {
       startDriftCheckCron();
       startScheduledReportCron();
       startAccessExpiryCron();
+      startMeetingReminderCron();
     });
   });
 }

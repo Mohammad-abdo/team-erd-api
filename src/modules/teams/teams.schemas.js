@@ -6,6 +6,7 @@ export const createTeamSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
   color: z.string().max(32).optional(),
   icon: z.string().max(32).nullable().optional(),
+  parentTeamId: z.string().min(1).nullable().optional(),
 });
 
 export const updateTeamSchema = createTeamSchema.partial();

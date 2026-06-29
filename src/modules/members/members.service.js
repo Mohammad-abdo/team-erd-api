@@ -1,7 +1,8 @@
 import { DailyReportScope, TaskStatus, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { isPlatformAdmin } from "../../middleware/adminAccess.js";
+import { isPlatformAdmin, isOrgAdmin } from "../../middleware/adminAccess.js";
+import { isTeamLeadOverUser } from "../../lib/teamHierarchy.js";
 import { enrichUserProfile } from "../../lib/userProfile.js";
 import { addMemberDirect } from "../projects/members.service.js";
 
@@ -29,24 +30,20 @@ async function assertCanViewProfile(viewerId, targetUserId) {
   if (viewerId === targetUserId) return { isSelf: true, isLead: false, sharedTeams: [] };
   const admin = await isPlatformAdmin(viewerId);
   if (admin) return { isSelf: false, isLead: true, sharedTeams: [] };
+  const orgAdmin = await isOrgAdmin(viewerId);
+  if (orgAdmin) return { isSelf: false, isLead: true, sharedTeams: [] };
 
-  const shared = await sharedTeamIds(viewerId, targetUserId);
-  if (!shared.length) {
-    const sharedProjects = await prisma.projectMember.findMany({
-      where: { userId: viewerId, project: { members: { some: { userId: targetUserId } } } },
-      select: { projectId: true },
-    });
-    if (!sharedProjects.length) {
-      throw new HttpError(403, "You do not have access to this profile");
-    }
-    return { isSelf: false, isLead: false, sharedTeams: [] };
-  }
-
-  const leadOnShared = await prisma.teamMember.findFirst({
-    where: { userId: viewerId, teamId: { in: shared }, role: TeamRole.TEAM_LEAD },
+  const viewer = await prisma.user.findUnique({
+    where: { id: viewerId },
+    select: { platformRole: true, organizationId: true },
   });
 
-  return { isSelf: false, isLead: Boolean(leadOnShared), sharedTeams: shared };
+  if (await isTeamLeadOverUser(viewerId, targetUserId, viewer)) {
+    const shared = await sharedTeamIds(viewerId, targetUserId);
+    return { isSelf: false, isLead: true, sharedTeams: shared };
+  }
+
+  throw new HttpError(403, "You do not have access to this profile");
 }
 
 async function assertCanRate(reviewerId, targetUserId, teamId) {

@@ -553,3 +553,114 @@ export async function applySuggestedApiRoutes(projectId, userId, payload) {
     source: payload.source ?? "heuristic",
   };
 }
+
+export async function teamAssistant(userId, { teamId, message, projectId }) {
+  const { getManagedTeamIds } = await import("../../lib/teamHierarchy.js");
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, platformRole: true, organizationId: true },
+  });
+
+  let teamIds = [];
+  if (teamId) {
+    const managed = await getManagedTeamIds(userId, user);
+    const isMember = await prisma.teamMember.findFirst({
+      where: { teamId, userId },
+      select: { id: true },
+    });
+    if (!managed.includes(teamId) && !isMember) {
+      throw new HttpError(403, "No access to this team");
+    }
+    teamIds = [teamId];
+  } else {
+    const managed = await getManagedTeamIds(userId, user);
+    if (managed.length) {
+      teamIds = managed.slice(0, 3);
+    } else {
+      const memberships = await prisma.teamMember.findMany({
+        where: { userId },
+        select: { teamId: true },
+        take: 3,
+      });
+      teamIds = memberships.map((m) => m.teamId);
+    }
+  }
+  const tasks = await prisma.projectTask.findMany({
+    where: {
+      OR: [
+        { assignees: { some: { userId } } },
+        { createdById: userId },
+        ...(teamIds.length
+          ? [{
+              project: {
+                teamProjects: { some: { teamId: { in: teamIds } } },
+              },
+            }]
+          : []),
+      ],
+    },
+    take: 15,
+    orderBy: { updatedAt: "desc" },
+    select: { title: true, status: true, dueDate: true, progress: true },
+  });
+
+  const meetings = teamIds.length
+    ? await prisma.meetingReminder.findMany({
+        where: { teamId: { in: teamIds }, scheduledAt: { gte: new Date() } },
+        take: 5,
+        orderBy: { scheduledAt: "asc" },
+      })
+    : [];
+
+  const context = {
+    user: user?.name,
+    tasks,
+    meetings: meetings.map((m) => ({ title: m.title, at: m.scheduledAt })),
+  };
+
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [
+          { leaderId: userId },
+          { members: { some: { userId } } },
+          { teamProjects: { some: { teamId: { in: teamIds } } } },
+        ],
+      },
+      select: { name: true, figmaUrl: true, githubUrl: true, liveUrl: true, docsUrl: true },
+    });
+    if (project) context.project = project;
+  }
+
+  if (!config.openai.apiKey) {
+    return {
+      reply: `لديك ${tasks.length} مهام نشطة و ${meetings.length} اجتماعات قادمة. ركّز على المهام المتأخرة أولاً.`,
+      source: "heuristic",
+    };
+  }
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openai.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.openai.model,
+      messages: [
+        {
+          role: "system",
+          content: "You are a concise team productivity assistant. Reply in Arabic when the user writes in Arabic. Use the JSON context only.",
+        },
+        { role: "user", content: `${message}\n\nContext: ${JSON.stringify(context)}` },
+      ],
+      temperature: 0.4,
+    }),
+  });
+
+  const data = await res.json();
+  const reply = data?.choices?.[0]?.message?.content?.trim();
+  if (!reply) throw new HttpError(502, "AI assistant unavailable");
+  return { reply, source: "openai" };
+}

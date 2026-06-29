@@ -9,6 +9,9 @@ export const NOTIFICATION_PREF_DEFAULTS = {
   dailyTaskAssigned: true,
   projectInvite: true,
   projectAdded: true,
+  meetingReminder: true,
+  voiceEnabled: false,
+  voiceLocale: "ar-EG",
 };
 
 /** Maps notification.type → user preference key */
@@ -21,6 +24,7 @@ export const NOTIFICATION_TYPE_TO_PREF = {
   DAILY_TASK_ASSIGNED: "dailyTaskAssigned",
   project_invite: "projectInvite",
   project_added: "projectAdded",
+  meeting_reminder: "meetingReminder",
 };
 
 /**
@@ -36,6 +40,8 @@ export function mergeNotificationPrefs(stored) {
   for (const key of Object.keys(NOTIFICATION_PREF_DEFAULTS)) {
     if (typeof input[key] === "boolean") {
       merged[key] = input[key];
+    } else if (key === "voiceLocale" && typeof input[key] === "string") {
+      merged[key] = input[key];
     }
   }
   return merged;
@@ -48,7 +54,9 @@ export function mergeNotificationPrefs(stored) {
 export function patchNotificationPrefs(stored, patch) {
   const current = mergeNotificationPrefs(stored);
   for (const [key, value] of Object.entries(patch)) {
-    if (key in NOTIFICATION_PREF_DEFAULTS && typeof value === "boolean") {
+    if (key === "voiceLocale" && typeof value === "string") {
+      current.voiceLocale = value;
+    } else if (key in NOTIFICATION_PREF_DEFAULTS && typeof value === "boolean") {
       current[key] = value;
     }
   }

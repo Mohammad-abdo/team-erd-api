@@ -529,9 +529,35 @@ export async function stopImpersonation(adminId) {
 }
 
 export async function exportCompanyBackup() {
-  const [users, teams, projects, templates] = await Promise.all([
+  const [
+    users,
+    teams,
+    projects,
+    templates,
+    platformSettings,
+    projectTasks,
+    dailyTasks,
+    clientProjectAccess,
+    notifications,
+    adminAuditLogs,
+    memberRatings,
+    scheduledReports,
+    customReportDefinitions,
+    accessRequests,
+    organizations,
+    meetingReminders,
+  ] = await Promise.all([
     prisma.user.findMany({
-      select: { id: true, name: true, email: true, platformRole: true, isActive: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        platformRole: true,
+        isActive: true,
+        notificationPrefs: true,
+        organizationId: true,
+        createdAt: true,
+      },
     }),
     prisma.team.findMany({ include: { members: true, projects: true } }),
     prisma.project.findMany({
@@ -544,12 +570,59 @@ export async function exportCompanyBackup() {
       },
     }),
     prisma.projectTemplate.findMany(),
+    prisma.platformSetting.findMany(),
+    prisma.projectTask.findMany({
+      include: { assignees: true, progressLogs: true },
+    }),
+    prisma.dailyTask.findMany(),
+    prisma.clientProjectAccess.findMany(),
+    prisma.notification.findMany({ take: 50000, orderBy: { createdAt: "desc" } }),
+    prisma.adminAuditLog.findMany({ take: 50000, orderBy: { createdAt: "desc" } }),
+    prisma.memberRating.findMany(),
+    prisma.scheduledReport.findMany({ include: { runs: { take: 100, orderBy: { ranAt: "desc" } } } }),
+    prisma.customReportDefinition.findMany(),
+    prisma.accessRequest.findMany(),
+    prisma.organization.findMany(),
+    prisma.meetingReminder.findMany(),
   ]);
+
+  const counts = {
+    users: users.length,
+    teams: teams.length,
+    projects: projects.length,
+    templates: templates.length,
+    projectTasks: projectTasks.length,
+    dailyTasks: dailyTasks.length,
+    clientProjectAccess: clientProjectAccess.length,
+    notifications: notifications.length,
+    adminAuditLogs: adminAuditLogs.length,
+    memberRatings: memberRatings.length,
+    scheduledReports: scheduledReports.length,
+    customReportDefinitions: customReportDefinitions.length,
+    accessRequests: accessRequests.length,
+    organizations: organizations.length,
+    meetingReminders: meetingReminders.length,
+  };
+
   return {
+    version: 2,
     exportedAt: new Date().toISOString(),
+    counts,
     users,
     teams,
     projects,
     templates,
+    platformSettings,
+    projectTasks,
+    dailyTasks,
+    clientProjectAccess,
+    notifications,
+    adminAuditLogs,
+    memberRatings,
+    scheduledReports,
+    customReportDefinitions,
+    accessRequests,
+    organizations,
+    meetingReminders,
   };
 }

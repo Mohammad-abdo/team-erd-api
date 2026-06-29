@@ -1,7 +1,7 @@
 import { PlatformRole, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { slugify } from "../../utils/slug.js";
+import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause, userIsOrgAdmin } from "../../lib/orgScope.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 
@@ -63,12 +63,18 @@ function projectAccessWhere(userId, teamId) {
 async function resolveProjectListWhere(userId, teamId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { platformRole: true },
+    select: { platformRole: true, organizationId: true },
   });
   if (user?.platformRole === PlatformRole.CLIENT) {
     return { members: { some: { userId } } };
   }
-  return projectAccessWhere(userId, teamId);
+  if (userIsOrgAdmin(user)) {
+    return teamId
+      ? { AND: [orgWhereClause(user), { teamProjects: { some: { teamId } } }] }
+      : orgWhereClause(user);
+  }
+  const access = projectAccessWhere(userId, teamId);
+  return { AND: [orgWhereClause(user), access] };
 }
 
 export async function listProjectsForUser(userId, { teamId } = {}) {
@@ -98,6 +104,7 @@ export async function listProjectsForUser(userId, { teamId } = {}) {
 
 export async function createProject(userId, input) {
   const slug = await uniqueSlug(input.name);
+  const organizationId = await getUserOrganizationId(userId);
 
   const project = await prisma.$transaction(async (tx) => {
     const p = await tx.project.create({
@@ -107,6 +114,7 @@ export async function createProject(userId, input) {
         description: input.description?.trim() ?? null,
         visibility: input.visibility,
         leaderId: userId,
+        organizationId: organizationId ?? DEFAULT_ORG_ID,
       },
     });
 
@@ -190,6 +198,8 @@ export async function updateProject(projectId, userId, input) {
     visibility: project.visibility,
   };
 
+  const urlField = (v) => (v === "" || v === null ? null : v);
+
   const updated = await prisma.project.update({
     where: { id: projectId },
     data: {
@@ -198,6 +208,10 @@ export async function updateProject(projectId, userId, input) {
         description: input.description === null ? null : input.description.trim(),
       }),
       ...(input.visibility !== undefined && { visibility: input.visibility }),
+      ...(input.figmaUrl !== undefined && { figmaUrl: urlField(input.figmaUrl) }),
+      ...(input.githubUrl !== undefined && { githubUrl: urlField(input.githubUrl) }),
+      ...(input.liveUrl !== undefined && { liveUrl: urlField(input.liveUrl) }),
+      ...(input.docsUrl !== undefined && { docsUrl: urlField(input.docsUrl) }),
     },
   });
 

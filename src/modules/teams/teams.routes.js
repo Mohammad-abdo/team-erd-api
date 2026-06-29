@@ -11,7 +11,7 @@ import {
   updateTeamMemberRoleSchema,
 } from "./teams.schemas.js";
 import * as teamsController from "./teams.controller.js";
-import dailyTasksRoutes from "../dailyTasks/daily-tasks.routes.js";
+import meetingsRoutes from "../meetings/meetings.routes.js";
 
 const r = Router();
 
@@ -30,5 +30,6 @@ r.post("/:teamId/projects", requireTeamLead(), validate(assignProjectSchema), te
 r.delete("/:teamId/projects/:projectId", requireTeamLead(), teamsController.unassignProject);
 r.post("/:teamId/weekly-digest", teamsController.sendWeeklyDigest);
 r.use("/:teamId/daily-tasks", dailyTasksRoutes);
+r.use("/:teamId/meetings", meetingsRoutes);
 
 export default r;

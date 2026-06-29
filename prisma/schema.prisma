@@ -106,6 +106,20 @@ enum DailyTaskSource {
   ASSIGNED
 }
 
+model Organization {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(200)
+  slug      String   @unique @db.VarChar(120)
+  settings  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users    User[]
+  teams    Team[]
+  projects Project[]
+
+  @@map("organizations")
+}
+
 model User {
   id           String       @id @default(cuid())
   name         String       @db.VarChar(200)
@@ -113,9 +127,12 @@ model User {
   passwordHash String?      @map("password_hash") @db.VarChar(255)
   avatar       String?
   platformRole        PlatformRole @default(MEMBER) @map("platform_role")
+  organizationId      String?      @map("organization_id")
   isActive            Boolean      @default(true) @map("is_active")
   notificationPrefs   Json?        @map("notification_prefs")
   createdAt           DateTime     @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
@@ -158,7 +175,9 @@ model User {
   scheduledReportsCreated ScheduledReport[]        @relation("ScheduledReportCreatedBy")
   accessRequests          AccessRequest[]          @relation("AccessRequestUser")
   accessRequestsReviewed  AccessRequest[]          @relation("AccessRequestReviewer")
+  meetingRemindersCreated MeetingReminder[]        @relation("MeetingReminderCreatedBy")
 
+  @@index([organizationId])
   @@map("users")
 }
 
@@ -207,13 +226,19 @@ model Project {
   slug        String            @unique @db.VarChar(200)
   description String?           @db.Text
   leaderId       String            @map("leader_id")
+  organizationId String?           @map("organization_id")
   visibility     ProjectVisibility @default(PRIVATE)
   healthStage    String?           @map("health_stage") @db.VarChar(30)
   lastActivityAt DateTime?         @map("last_activity_at")
+  figmaUrl       String?           @map("figma_url") @db.VarChar(500)
+  githubUrl      String?           @map("github_url") @db.VarChar(500)
+  liveUrl        String?           @map("live_url") @db.VarChar(500)
+  docsUrl        String?           @map("docs_url") @db.VarChar(500)
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
-  leader User @relation("ProjectLeader", fields: [leaderId], references: [id], onDelete: Restrict)
+  leader       User          @relation("ProjectLeader", fields: [leaderId], references: [id], onDelete: Restrict)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   members      ProjectMember[]
   invitations  ProjectInvitation[]
@@ -239,6 +264,7 @@ model Project {
 
   @@index([leaderId])
   @@index([healthStage])
+  @@index([organizationId])
   @@map("projects")
 }
 
@@ -309,22 +335,30 @@ model ProjectDriftSchedule {
 }
 
 model Team {
-  id          String   @id @default(cuid())
-  name        String   @db.VarChar(120)
-  slug        String   @unique @db.VarChar(120)
-  description String?  @db.Text
-  color       String   @default("#0d9488") @db.VarChar(32)
-  icon        String?  @db.VarChar(32)
-  createdById String   @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             String   @id @default(cuid())
+  name           String   @db.VarChar(120)
+  slug           String   @unique @db.VarChar(120)
+  description    String?  @db.Text
+  color          String   @default("#0d9488") @db.VarChar(32)
+  icon           String?  @db.VarChar(32)
+  organizationId String?  @map("organization_id")
+  parentTeamId   String?  @map("parent_team_id")
+  createdById    String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  createdBy  User         @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  members    TeamMember[]
-  projects      TeamProject[]
-  dailyTasks    DailyTask[]
-  memberRatings MemberRating[]
-  dailyReports  DailyReport[]
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  parentTeam   Team?         @relation("TeamHierarchy", fields: [parentTeamId], references: [id], onDelete: SetNull)
+  childTeams   Team[]        @relation("TeamHierarchy")
+  createdBy    User          @relation("TeamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  members         TeamMember[]
+  projects        TeamProject[]
+  dailyTasks      DailyTask[]
+  memberRatings   MemberRating[]
+  dailyReports    DailyReport[]
+  meetingReminders MeetingReminder[]
 
+  @@index([organizationId])
+  @@index([parentTeamId])
   @@map("teams")
 }
 
@@ -1006,4 +1040,24 @@ model PlatformSetting {
   updatedBy User? @relation("PlatformSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("platform_settings")
+}
+
+model MeetingReminder {
+  id           String   @id @default(cuid())
+  teamId       String   @map("team_id")
+  title        String   @db.VarChar(300)
+  description  String?  @db.Text
+  scheduledAt  DateTime @map("scheduled_at")
+  attendeeIds  Json     @map("attendee_ids")
+  voiceEnabled Boolean  @default(true) @map("voice_enabled")
+  notifiedAt   DateTime? @map("notified_at")
+  createdById  String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User @relation("MeetingReminderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([teamId, scheduledAt])
+  @@index([scheduledAt, notifiedAt])
+  @@map("meeting_reminders")
 }

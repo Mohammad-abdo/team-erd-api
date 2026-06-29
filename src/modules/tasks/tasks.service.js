@@ -2,6 +2,7 @@ import { PlatformRole, ProjectMemberRole, TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logActivity } from "../activity/activity.service.js";
+import { assertCanAssignTask, assertCanEditTask } from "../../lib/taskAccess.js";
 
 const taskInclude = {
   project: {
@@ -301,7 +302,9 @@ export async function createTask(projectId, userId, input) {
   if (!project) throw new HttpError(404, "Project not found");
 
   const assigneeIds = input.assigneeIds ?? [];
-  await assertAssigneesAreMembers(projectId, assigneeIds);
+  await assertCanAssignTask(userId, assigneeIds.length ? assigneeIds : [userId]);
+  await assertAssigneesAreMembers(projectId, assigneeIds.length ? assigneeIds : [userId]);
+  const finalAssignees = assigneeIds.length ? assigneeIds : [userId];
 
   const status = input.status ?? TaskStatus.TODO;
   const progress = input.progress ?? (status === TaskStatus.DONE ? 100 : 0);
@@ -318,16 +321,16 @@ export async function createTask(projectId, userId, input) {
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
         createdById: userId,
         completedAt: status === TaskStatus.DONE ? new Date() : null,
-        assignees: assigneeIds.length
-          ? { create: assigneeIds.map((uid) => ({ userId: uid })) }
+        assignees: finalAssignees.length
+          ? { create: finalAssignees.map((uid) => ({ userId: uid })) }
           : undefined,
       },
       include: taskInclude,
     }),
   );
 
-  if (assigneeIds.length) {
-    await notifyAssignees({ task, project, assigneeIds, actorId: userId });
+  if (finalAssignees.length) {
+    await notifyAssignees({ task, project, assigneeIds: finalAssignees, actorId: userId });
   }
 
   await logActivity({
@@ -349,7 +352,10 @@ export async function updateTask(projectId, taskId, userId, input) {
   });
   if (!existing) throw new HttpError(404, "Task not found");
 
+  await assertCanEditTask(userId, existing, projectId);
+
   if (input.assigneeIds) {
+    await assertCanAssignTask(userId, input.assigneeIds);
     await assertAssigneesAreMembers(projectId, input.assigneeIds);
   }
 
@@ -417,8 +423,11 @@ export async function updateTask(projectId, taskId, userId, input) {
 export async function deleteTask(projectId, taskId, userId) {
   const existing = await prisma.projectTask.findFirst({
     where: { id: taskId, projectId },
+    include: { assignees: true },
   });
   if (!existing) throw new HttpError(404, "Task not found");
+
+  await assertCanEditTask(userId, existing, projectId);
 
   await prisma.projectTask.delete({ where: { id: taskId } });
 
