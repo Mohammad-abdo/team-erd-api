@@ -73,6 +73,7 @@ enum PermissionAction {
 enum PlatformRole {
   SUPER_ADMIN
   ORG_ADMIN
+  TEAM_ADMIN
   MEMBER
   CLIENT
 }
@@ -116,6 +117,7 @@ model Organization {
   users    User[]
   teams    Team[]
   projects Project[]
+  workShifts WorkShift[]
 
   @@map("organizations")
 }
@@ -176,6 +178,8 @@ model User {
   accessRequests          AccessRequest[]          @relation("AccessRequestUser")
   accessRequestsReviewed  AccessRequest[]          @relation("AccessRequestReviewer")
   meetingRemindersCreated MeetingReminder[]        @relation("MeetingReminderCreatedBy")
+  workShifts              WorkShift[]
+  todayFocusItems         TodayFocusItem[]
 
   @@index([organizationId])
   @@map("users")
@@ -1060,4 +1064,37 @@ model MeetingReminder {
   @@index([teamId, scheduledAt])
   @@index([scheduledAt, notifiedAt])
   @@map("meeting_reminders")
+}
+
+model WorkShift {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  organizationId String    @map("organization_id")
+  startedAt      DateTime  @default(now()) @map("started_at")
+  endedAt        DateTime? @map("ended_at")
+  note           String?   @db.Text
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+  @@index([organizationId, startedAt])
+  @@map("work_shifts")
+}
+
+model TodayFocusItem {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  focusDate   DateTime @db.Date @map("focus_date")
+  title       String   @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isDone      Boolean  @default(false) @map("is_done")
+  taskId      String?  @map("task_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, focusDate, sortOrder])
+  @@map("today_focus_items")
 }

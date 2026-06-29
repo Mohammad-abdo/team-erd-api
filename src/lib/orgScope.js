@@ -20,6 +20,20 @@ export function userIsOrgAdmin(user) {
   return user?.platformRole === PlatformRole.ORG_ADMIN || isSuperAdmin(user);
 }
 
+export function userIsTeamAdmin(user) {
+  return user?.platformRole === PlatformRole.TEAM_ADMIN;
+}
+
+/** Org-level or platform admin (company owner scope). */
+export function userIsCompanyAdmin(user) {
+  return userIsOrgAdmin(user);
+}
+
+/** Team-scoped admin: manages teams they lead, not full company admin. */
+export function userIsTeamLevelAdmin(user) {
+  return userIsTeamAdmin(user);
+}
+
 /** SUPER_ADMIN sees all orgs; others scoped to their organizationId. */
 export function orgWhereClause(user) {
   if (isSuperAdmin(user)) return {};

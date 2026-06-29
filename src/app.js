@@ -46,6 +46,8 @@ import organizationsRoutes from "./modules/organizations/organizations.routes.js
 import progressRoutes from "./modules/progress/progress.routes.js";
 import { startMeetingReminderCron } from "./jobs/meetingReminderCron.js";
 import aiTeamRoutes from "./modules/ai/ai.team.routes.js";
+import shiftsRoutes from "./modules/shifts/shifts.routes.js";
+import focusRoutes from "./modules/focus/focus.routes.js";
 import {
   accessRequestProjectRoutes,
   accessRequestRoutes,
@@ -183,6 +185,8 @@ mount("/api/tasks", tasksGlobalRoutes);
 mount("/api/daily-tasks", dailyTasksGlobalRoutes);
 mount("/api/members", membersRoutes);
 mount("/api/progress", progressRoutes);
+mount("/api/shifts", shiftsRoutes);
+mount("/api/focus", focusRoutes);
 mount("/api/ai/team", aiTeamRoutes);
 
 app.use(notFoundHandler);

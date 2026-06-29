@@ -4,6 +4,7 @@ import { validate } from "../../middleware/validate.js";
 import * as orgService from "./organizations.service.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { requireSuperAdmin } from "../../middleware/adminAccess.js";
+import { requireOrgAdmin } from "../../middleware/adminAccess.js";
 
 const r = Router();
 
@@ -12,6 +13,17 @@ r.post(
   validate(orgService.registerOrganizationSchema),
   asyncHandler(async (req, res) => {
     const result = await orgService.registerOrganization(req.body);
+    res.status(201).json(result);
+  }),
+);
+
+r.post(
+  "/team-accounts",
+  requireAuth,
+  requireOrgAdmin,
+  validate(orgService.createTeamAccountSchema),
+  asyncHandler(async (req, res) => {
+    const result = await orgService.createTeamAccount(req.user.sub, req.body);
     res.status(201).json(result);
   }),
 );

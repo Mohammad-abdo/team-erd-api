@@ -18,13 +18,36 @@ async function uniqueTeamSlug(base) {
 }
 
 export async function assertTeamManager(userId, teamId) {
-  const admin = await isOrgAdmin(userId);
-  if (admin) return { isAdmin: true };
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true, organizationId: true },
+  });
+  if (user?.platformRole === PlatformRole.SUPER_ADMIN) return { isAdmin: true };
+  if (user?.platformRole === PlatformRole.ORG_ADMIN) {
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+      select: { organizationId: true },
+    });
+    const orgId = user.organizationId ?? DEFAULT_ORG_ID;
+    if (team && (team.organizationId ?? DEFAULT_ORG_ID) === orgId) {
+      return { isAdmin: true };
+    }
+    throw new HttpError(403, "Team is outside your organization");
+  }
+  if (user?.platformRole === PlatformRole.TEAM_ADMIN) {
+    const member = await prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId, userId } },
+    });
+    if (member?.role === TeamRole.TEAM_LEAD) {
+      return { isAdmin: false, member };
+    }
+    throw new HttpError(403, "Team admin must be team lead on this team");
+  }
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
   });
   if (!member || member.role !== TeamRole.TEAM_LEAD) {
-    throw new HttpError(403, "Team lead or platform admin required");
+    throw new HttpError(403, "Team lead or organization admin required");
   }
   return { isAdmin: false, member };
 }

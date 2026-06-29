@@ -1,0 +1,44 @@
+import { Router } from "express";
+import { requireAuth } from "../../middleware/auth.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import * as shiftsService from "./shifts.service.js";
+
+const r = Router();
+
+r.get(
+  "/today",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shift = await shiftsService.getTodayShift(req.user.sub);
+    res.json({ shift });
+  }),
+);
+
+r.post(
+  "/start",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shift = await shiftsService.startShift(req.user.sub);
+    res.status(201).json({ shift });
+  }),
+);
+
+r.post(
+  "/end",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shift = await shiftsService.endShift(req.user.sub, req.body ?? {});
+    res.json({ shift });
+  }),
+);
+
+r.get(
+  "/history",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const shifts = await shiftsService.listMyShifts(req.user.sub);
+    res.json({ shifts });
+  }),
+);
+
+export default r;

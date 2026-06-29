@@ -1,9 +1,11 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { PlatformRole } from "@prisma/client";
+import { PlatformRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { slugify } from "../../utils/slug.js";
+import { loadAdminActor, assertTeamInOrgScope } from "../../lib/adminScope.js";
+import { DEFAULT_ORG_ID } from "../../lib/orgScope.js";
 
 const SALT_ROUNDS = 10;
 
@@ -68,3 +70,50 @@ export const registerOrganizationSchema = z.object({
   adminEmail: z.string().email(),
   adminPassword: z.string().min(8).max(128),
 });
+
+export const createTeamAccountSchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  teamId: z.string().min(1),
+  teamRole: z.enum(["MEMBER", "TEAM_LEAD"]).optional(),
+});
+
+/** ORG_ADMIN creates a team-scoped account (TEAM_ADMIN) with fewer powers than company admin. */
+export async function createTeamAccount(actorId, input) {
+  const actor = await loadAdminActor(actorId);
+  await assertTeamInOrgScope(actor, input.teamId);
+
+  const normalized = input.email.trim().toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email: normalized } });
+  if (existing) throw new HttpError(409, "Email already registered");
+
+  const organizationId = actor.isSuperAdmin
+    ? (await prisma.team.findUnique({ where: { id: input.teamId }, select: { organizationId: true } }))?.organizationId
+    : (actor.user.organizationId ?? DEFAULT_ORG_ID);
+
+  const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
+  const teamRole = input.teamRole ?? TeamRole.TEAM_LEAD;
+
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        name: input.name.trim(),
+        email: normalized,
+        passwordHash,
+        platformRole: PlatformRole.TEAM_ADMIN,
+        organizationId: organizationId ?? DEFAULT_ORG_ID,
+      },
+    });
+    await tx.teamMember.create({
+      data: {
+        teamId: input.teamId,
+        userId: created.id,
+        role: teamRole,
+      },
+    });
+    return created;
+  });
+
+  return { userId: user.id, email: user.email, platformRole: user.platformRole };
+}

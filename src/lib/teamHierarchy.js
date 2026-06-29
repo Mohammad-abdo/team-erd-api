@@ -1,6 +1,6 @@
 import { TeamRole } from "@prisma/client";
 import { prisma } from "./prisma.js";
-import { userIsOrgAdmin, isSuperAdmin as userIsSuperAdmin } from "./orgScope.js";
+import { userIsOrgAdmin, userIsTeamAdmin, isSuperAdmin as userIsSuperAdmin } from "./orgScope.js";
 
 /** All team ids in subtree (including root). */
 export async function getDescendantTeamIds(rootTeamId) {
@@ -46,6 +46,16 @@ export async function getManagedTeamIds(userId, user) {
     });
     return teams.map((t) => t.id);
   }
+  if (userIsTeamAdmin(user)) {
+    const leadIds = await getLeadTeamIds(userId);
+    const managed = new Set();
+    for (const tid of leadIds) {
+      for (const id of await getDescendantTeamIds(tid)) {
+        managed.add(id);
+      }
+    }
+    return [...managed];
+  }
   const leadIds = await getLeadTeamIds(userId);
   const managed = new Set();
   for (const tid of leadIds) {
@@ -60,6 +70,14 @@ export async function getManagedTeamIds(userId, user) {
 export async function isTeamLeadOverUser(actorId, targetUserId, user) {
   if (actorId === targetUserId) return true;
   if (userIsOrgAdmin(user)) return true;
+  if (userIsTeamAdmin(user)) {
+    const managed = await getManagedTeamIds(actorId, user);
+    if (!managed.length) return false;
+    const membership = await prisma.teamMember.findFirst({
+      where: { userId: targetUserId, teamId: { in: managed } },
+    });
+    return Boolean(membership);
+  }
   const managed = await getManagedTeamIds(actorId, user);
   if (!managed.length) return false;
   const membership = await prisma.teamMember.findFirst({

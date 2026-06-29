@@ -8,16 +8,35 @@ import { serializeClientAccess, upsertClientProjectAccess } from "../../lib/clie
 import { signAccessToken } from "../../lib/tokens.js";
 import * as teamsService from "../teams/teams.service.js";
 import { addMemberDirect, transferProjectLeader } from "../projects/members.service.js";
+import {
+  loadAdminActor,
+  assertUserInOrgScope,
+  assertTeamInOrgScope,
+  assertProjectInOrgScope,
+  assertAssignablePlatformRole,
+  userWhereForAdmin,
+} from "../../lib/adminScope.js";
+import { DEFAULT_ORG_ID } from "../../lib/orgScope.js";
 
 const SALT_ROUNDS = 10;
 
-export async function getPlatformStats() {
+export async function getPlatformStats(adminId) {
+  const actor = await loadAdminActor(adminId);
+  const userWhere = userWhereForAdmin(actor);
+  const teamWhere = actor.isSuperAdmin ? {} : actor.orgWhere;
+  const projectWhere = actor.isSuperAdmin ? {} : actor.orgWhere;
+
+  const orgUserIds = actor.isSuperAdmin
+    ? null
+    : (await prisma.user.findMany({ where: userWhere, select: { id: true } })).map((u) => u.id);
+
   const [users, teams, projects, activeUsers, recentAudit] = await Promise.all([
-    prisma.user.count(),
-    prisma.team.count(),
-    prisma.project.count(),
-    prisma.user.count({ where: { isActive: true } }),
+    prisma.user.count({ where: userWhere }),
+    prisma.team.count({ where: teamWhere }),
+    prisma.project.count({ where: projectWhere }),
+    prisma.user.count({ where: { ...userWhere, isActive: true } }),
     prisma.adminAuditLog.findMany({
+      where: orgUserIds ? { userId: { in: orgUserIds } } : {},
       orderBy: { createdAt: "desc" },
       take: 20,
       include: { user: { select: { id: true, name: true, email: true } } },
@@ -26,9 +45,12 @@ export async function getPlatformStats() {
   return { users, teams, projects, activeUsers, recentAudit };
 }
 
-export async function listAllUsers({ skip = 0, take = 50 } = {}) {
+export async function listAllUsers(adminId, { skip = 0, take = 50 } = {}) {
+  const actor = await loadAdminActor(adminId);
+  const where = userWhereForAdmin(actor);
   const [users, total] = await Promise.all([
     prisma.user.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       skip,
       take,
@@ -46,7 +68,7 @@ export async function listAllUsers({ skip = 0, take = 50 } = {}) {
         _count: { select: { projectMembers: true } },
       },
     }),
-    prisma.user.count(),
+    prisma.user.count({ where }),
   ]);
   return {
     total,
@@ -71,17 +93,26 @@ export async function listAllUsers({ skip = 0, take = 50 } = {}) {
 }
 
 export async function createUser(adminId, input) {
+  const actor = await loadAdminActor(adminId);
+  const role = input.platformRole ?? PlatformRole.MEMBER;
+  assertAssignablePlatformRole(actor, role);
+
   const normalized = input.email.trim().toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email: normalized } });
   if (existing) throw new HttpError(409, "Email already registered");
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
+  const organizationId = actor.isSuperAdmin
+    ? (input.organizationId ?? null)
+    : (actor.user.organizationId ?? DEFAULT_ORG_ID);
+
   const user = await prisma.user.create({
     data: {
       name: input.name.trim(),
       email: normalized,
       passwordHash,
-      platformRole: input.platformRole ?? PlatformRole.MEMBER,
+      platformRole: role,
+      organizationId,
     },
   });
 
@@ -96,7 +127,10 @@ export async function createUser(adminId, input) {
   return enrichUserProfile(user.id);
 }
 
-export async function getUserDetail(userId) {
+export async function getUserDetail(adminId, userId) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -192,6 +226,9 @@ export async function getUserDetail(userId) {
 }
 
 export async function updateUser(adminId, userId, input) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+
   if (adminId === userId && input.isActive === false) {
     throw new HttpError(400, "Cannot deactivate your own account");
   }
@@ -204,6 +241,9 @@ export async function updateUser(adminId, userId, input) {
 
   const oldPlatformRole = existing.platformRole;
   const newPlatformRole = input.platformRole ?? oldPlatformRole;
+  if (input.platformRole !== undefined) {
+    assertAssignablePlatformRole(actor, newPlatformRole);
+  }
 
   const data = {
     ...(input.name !== undefined && { name: input.name.trim() }),
@@ -255,6 +295,10 @@ export async function updateUser(adminId, userId, input) {
 }
 
 export async function assignUserToTeam(adminId, userId, { teamId, role }) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertTeamInOrgScope(actor, teamId);
+
   const target = await prisma.user.findUnique({
     where: { id: userId },
     select: { platformRole: true },
@@ -271,10 +315,17 @@ export async function assignUserToTeam(adminId, userId, { teamId, role }) {
 }
 
 export async function removeUserFromTeam(adminId, userId, teamId) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertTeamInOrgScope(actor, teamId);
   await teamsService.removeTeamMember(adminId, teamId, userId);
 }
 
 export async function assignUserToProject(adminId, userId, { projectId, role, clientAccess, expiresAt }) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertProjectInOrgScope(actor, projectId);
+
   const target = await prisma.user.findUnique({
     where: { id: userId },
     select: { platformRole: true },
@@ -304,6 +355,10 @@ export async function assignUserToProject(adminId, userId, { projectId, role, cl
 }
 
 export async function updateUserProjectClientAccess(adminId, userId, projectId, clientAccess) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertProjectInOrgScope(actor, projectId);
+
   const target = await prisma.user.findUnique({
     where: { id: userId },
     select: { platformRole: true },
@@ -331,6 +386,10 @@ export async function updateUserProjectClientAccess(adminId, userId, projectId, 
 }
 
 export async function removeUserFromProject(adminId, userId, projectId) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertProjectInOrgScope(actor, projectId);
+
   const member = await prisma.projectMember.findUnique({
     where: { projectId_userId: { projectId, userId } },
   });
@@ -357,6 +416,9 @@ export async function removeUserFromProject(adminId, userId, projectId) {
 }
 
 export async function transferUserToProjectLeader(adminId, userId, projectId) {
+  const actor = await loadAdminActor(adminId);
+  await assertUserInOrgScope(actor, userId);
+  await assertProjectInOrgScope(actor, projectId);
   return transferProjectLeader({
     projectId,
     newLeaderUserId: userId,
@@ -365,9 +427,12 @@ export async function transferUserToProjectLeader(adminId, userId, projectId) {
   });
 }
 
-export async function listAllProjects({ skip = 0, take = 50 } = {}) {
+export async function listAllProjects(adminId, { skip = 0, take = 50 } = {}) {
+  const actor = await loadAdminActor(adminId);
+  const where = actor.isSuperAdmin ? {} : actor.orgWhere;
   const [projects, total] = await Promise.all([
     prisma.project.findMany({
+      where,
       orderBy: { updatedAt: "desc" },
       skip,
       take,
@@ -377,7 +442,7 @@ export async function listAllProjects({ skip = 0, take = 50 } = {}) {
         _count: { select: { members: true, erdTables: true, erdRelations: true, comments: true } },
       },
     }),
-    prisma.project.count(),
+    prisma.project.count({ where }),
   ]);
   return {
     total,
@@ -397,13 +462,14 @@ export async function listAllProjects({ skip = 0, take = 50 } = {}) {
   };
 }
 
-export async function listAuditLog({
+export async function listAuditLog(adminId, {
   limit = 50,
   skip = 0,
   action,
   entityType,
   filter,
 } = {}) {
+  const actor = await loadAdminActor(adminId);
   const where = {};
   if (action) where.action = action;
   if (entityType) where.entityType = entityType;
@@ -420,6 +486,14 @@ export async function listAuditLog({
     ];
   }
 
+  if (!actor.isSuperAdmin) {
+    const orgUserIds = (await prisma.user.findMany({
+      where: userWhereForAdmin(actor),
+      select: { id: true },
+    })).map((u) => u.id);
+    where.userId = { in: orgUserIds };
+  }
+
   const [items, total] = await Promise.all([
     prisma.adminAuditLog.findMany({
       where,
@@ -433,12 +507,18 @@ export async function listAuditLog({
   return { items, total };
 }
 
-export async function listAllInvitations({ status = "pending" } = {}) {
+export async function listAllInvitations(adminId, { status = "pending" } = {}) {
+  const actor = await loadAdminActor(adminId);
   if (status !== "pending") {
     throw new HttpError(400, "Only pending invitations are supported");
   }
+  const projectWhere = actor.isSuperAdmin ? {} : actor.orgWhere;
   const invitations = await prisma.projectInvitation.findMany({
-    where: { acceptedAt: null, expiresAt: { gt: new Date() } },
+    where: {
+      acceptedAt: null,
+      expiresAt: { gt: new Date() },
+      project: projectWhere,
+    },
     orderBy: { expiresAt: "desc" },
     include: {
       project: { select: { id: true, name: true, slug: true } },
@@ -448,25 +528,36 @@ export async function listAllInvitations({ status = "pending" } = {}) {
 }
 
 export async function bulkUserAction(adminId, { userIds, action, payload = {} }) {
+  const actor = await loadAdminActor(adminId);
+  const scopedIds = [];
+  for (const id of userIds) {
+    try {
+      await assertUserInOrgScope(actor, id);
+      scopedIds.push(id);
+    } catch {
+      // skip out-of-scope users
+    }
+  }
+
   if (action === "deactivate") {
     await prisma.user.updateMany({
-      where: { id: { in: userIds.filter((id) => id !== adminId) } },
+      where: { id: { in: scopedIds.filter((id) => id !== adminId) } },
       data: { isActive: false },
     });
     await logAdminAudit({
       userId: adminId,
       action: "bulk_deactivated",
       entityType: "user",
-      meta: { userIds, count: userIds.length },
+      meta: { userIds: scopedIds, count: scopedIds.length },
     });
-    return { updated: userIds.length };
+    return { updated: scopedIds.length };
   }
 
   if (action === "assignTeam") {
     const { teamId, role } = payload;
     if (!teamId) throw new HttpError(400, "teamId required");
     let count = 0;
-    for (const userId of userIds) {
+    for (const userId of scopedIds) {
       try {
         await assignUserToTeam(adminId, userId, { teamId, role: role ?? TeamRole.MEMBER });
         count += 1;

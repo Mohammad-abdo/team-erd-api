@@ -21,15 +21,15 @@ export const updateSettings = asyncHandler(async (req, res) => {
   res.json({ branding });
 });
 
-export const stats = asyncHandler(async (_req, res) => {
-  const data = await adminService.getPlatformStats();
+export const stats = asyncHandler(async (req, res) => {
+  const data = await adminService.getPlatformStats(req.user.sub);
   res.json(data);
 });
 
 export const listUsers = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-  const data = await adminService.listAllUsers({ skip: (page - 1) * limit, take: limit });
+  const data = await adminService.listAllUsers(req.user.sub, { skip: (page - 1) * limit, take: limit });
   res.json({ ...data, page, limit });
 });
 
@@ -39,7 +39,7 @@ export const createUser = asyncHandler(async (req, res) => {
 });
 
 export const getUser = asyncHandler(async (req, res) => {
-  const user = await adminService.getUserDetail(req.params.userId);
+  const user = await adminService.getUserDetail(req.user.sub, req.params.userId);
   res.json({ user });
 });
 
@@ -90,7 +90,7 @@ export const transferProjectLeader = asyncHandler(async (req, res) => {
 export const listProjects = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-  const data = await adminService.listAllProjects({ skip: (page - 1) * limit, take: limit });
+  const data = await adminService.listAllProjects(req.user.sub, { skip: (page - 1) * limit, take: limit });
   res.json({ ...data, page, limit });
 });
 
@@ -122,7 +122,7 @@ export const securityOverview = asyncHandler(async (_req, res) => {
 export const auditLog = asyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-  const data = await adminService.listAuditLog({
+  const data = await adminService.listAuditLog(req.user.sub, {
     limit,
     skip: (page - 1) * limit,
     action: req.query.action,
@@ -133,7 +133,7 @@ export const auditLog = asyncHandler(async (req, res) => {
 });
 
 export const listInvitations = asyncHandler(async (req, res) => {
-  const data = await adminService.listAllInvitations({ status: req.query.status ?? "pending" });
+  const data = await adminService.listAllInvitations(req.user.sub, { status: req.query.status ?? "pending" });
   res.json(data);
 });
 
