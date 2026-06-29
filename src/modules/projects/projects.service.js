@@ -307,8 +307,12 @@ export async function updateProject(projectId, userId, input) {
         description: input.description === null ? null : input.description.trim(),
       }),
       ...(input.visibility !== undefined && { visibility: input.visibility }),
-      ...(input.startDate !== undefined && { startDate: new Date(input.startDate) }),
-      ...(input.deadline !== undefined && { deadline: new Date(input.deadline) }),
+      ...(input.startDate !== undefined && {
+        startDate: input.startDate === null ? null : new Date(input.startDate),
+      }),
+      ...(input.deadline !== undefined && {
+        deadline: input.deadline === null ? null : new Date(input.deadline),
+      }),
       ...(input.clientRequirements !== undefined && {
         clientRequirements: input.clientRequirements === null ? null : input.clientRequirements.trim(),
       }),

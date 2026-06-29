@@ -17,6 +17,20 @@ const optionalUrl = z.preprocess(
 );
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const optionalDate = z.union([dateString, z.null()]).optional();
+
+const optionalEmail = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) return null;
+    return String(value).trim();
+  },
+  z.union([z.string().email().max(200), z.null()]).optional(),
+);
+
+const deploymentUrl = z.preprocess(
+  normalizeOptionalUrl,
+  z.union([z.string().url().max(500), z.null()]).optional(),
+);
 
 const exampleItem = z.object({
   title: z.string().min(1).max(200),
@@ -38,11 +52,11 @@ const deploymentAccessItem = z.object({
     "OTHER",
   ]),
   label: z.string().min(1).max(200),
-  url: z.union([z.string().url().max(500), z.literal(""), z.null()]).optional(),
+  url: deploymentUrl,
   environment: z.enum(["production", "staging", "development"]).optional(),
   username: z.union([z.string().max(200), z.literal(""), z.null()]).optional(),
   password: z.union([z.string().max(500), z.literal(""), z.null()]).optional(),
-  email: z.union([z.string().email().max(200), z.literal(""), z.null()]).optional(),
+  email: optionalEmail,
   role: z.union([z.string().max(100), z.literal(""), z.null()]).optional(),
   notes: z.union([z.string().max(2000), z.literal(""), z.null()]).optional(),
 });
@@ -75,8 +89,8 @@ export const updateProjectSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.union([z.string().max(5000), z.null()]).optional(),
   visibility: visibility.optional(),
-  startDate: dateString.optional(),
-  deadline: dateString.optional(),
+  startDate: optionalDate,
+  deadline: optionalDate,
   clientRequirements: z.union([z.string().max(50000), z.null()]).optional(),
   examplesJson: z.union([z.array(exampleItem), z.null()]).optional(),
   deploymentAccessJson: z.union([deploymentAccessJsonSchema, z.null()]).optional(),
