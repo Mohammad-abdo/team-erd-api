@@ -1,7 +1,7 @@
 import { TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { canSuperviseUser, getManagedMemberUserIds } from "../../lib/teamHierarchy.js";
+import { canSuperviseUser, getManagedMemberUserIds, getDescendantTeamIds } from "../../lib/teamHierarchy.js";
 import { loadUserContext } from "../../lib/orgScope.js";
 import { getProgressInsights } from "../progress/progress.service.js";
 
@@ -223,6 +223,103 @@ export async function aggregateMonthlyKpis(userId, { from, to }) {
   };
 }
 
+function computePerformanceScore(kpis, month) {
+  const focusScore = kpis?.focus?.completionRate ?? 0;
+  const taskScore = kpis?.projectTasks?.completionRate ?? 0;
+  const dailyTotal = kpis?.dailyTasks?.total ?? 0;
+  const dailyScore = dailyTotal
+    ? Math.round(((kpis.dailyTasks.completed ?? 0) / dailyTotal) * 100)
+    : 100;
+
+  const [y, m] = (month ?? "").split("-").map(Number);
+  const now = new Date();
+  const isCurrentMonth = now.getUTCFullYear() === y && now.getUTCMonth() + 1 === m;
+  const daysInMonth = y && m ? new Date(Date.UTC(y, m, 0)).getUTCDate() : 30;
+  const daysElapsed = isCurrentMonth ? now.getUTCDate() : daysInMonth;
+  const presenceScore = Math.min(
+    100,
+    Math.round(((kpis?.workShifts?.daysPresent ?? 0) / Math.max(1, daysElapsed)) * 100),
+  );
+
+  return Math.round(
+    focusScore * 0.3 + taskScore * 0.3 + dailyScore * 0.2 + presenceScore * 0.2,
+  );
+}
+
+async function aggregateProjectBreakdown(userId, period, teamProjectIds = null) {
+  const now = new Date();
+  const tasks = await prisma.projectTask.findMany({
+    where: {
+      assignees: { some: { userId } },
+      ...(teamProjectIds?.length ? { projectId: { in: teamProjectIds } } : {}),
+    },
+    select: {
+      id: true,
+      status: true,
+      completedAt: true,
+      dueDate: true,
+      progress: true,
+      projectId: true,
+      project: { select: { id: true, name: true, slug: true } },
+    },
+  });
+
+  const byProject = new Map();
+  for (const task of tasks) {
+    if (!byProject.has(task.projectId)) {
+      byProject.set(task.projectId, {
+        project: task.project,
+        completedInMonth: 0,
+        active: 0,
+        overdue: 0,
+        avgProgress: 0,
+        _progressSum: 0,
+        _activeCount: 0,
+      });
+    }
+    const row = byProject.get(task.projectId);
+    if (task.status === TaskStatus.DONE) {
+      if (task.completedAt && task.completedAt >= period.from && task.completedAt < period.to) {
+        row.completedInMonth += 1;
+      }
+    } else {
+      row.active += 1;
+      row._progressSum += task.progress ?? 0;
+      row._activeCount += 1;
+      if (task.dueDate && new Date(task.dueDate) < now) row.overdue += 1;
+    }
+  }
+
+  return [...byProject.values()]
+    .map((row) => ({
+      project: row.project,
+      completedInMonth: row.completedInMonth,
+      active: row.active,
+      overdue: row.overdue,
+      avgProgress: row._activeCount
+        ? Math.round(row._progressSum / row._activeCount)
+        : (row.completedInMonth ? 100 : 0),
+    }))
+    .filter((row) => row.completedInMonth > 0 || row.active > 0)
+    .sort((a, b) => b.completedInMonth - a.completedInMonth || b.active - a.active);
+}
+
+async function resolveTeamScope(teamId) {
+  if (!teamId) return { team: null, teamProjectIds: null, subtreeIds: [] };
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true, name: true, slug: true, color: true },
+  });
+  if (!team) throw new HttpError(404, "Team not found");
+  const subtreeIds = await getDescendantTeamIds(teamId);
+  const links = await prisma.teamProject.findMany({
+    where: { teamId: { in: subtreeIds } },
+    select: { projectId: true },
+  });
+  const teamProjectIds = [...new Set(links.map((l) => l.projectId))];
+  return { team, teamProjectIds, subtreeIds };
+}
+
 async function buildPerformancePayload(viewerId, targetUserId, monthInput, { includeTeamContext = false } = {}) {
   const period = parseMonth(monthInput);
   const user = await prisma.user.findUnique({
@@ -281,23 +378,64 @@ export async function getTeamPerformance(viewerId, { teamId, month } = {}) {
   }
 
   const period = parseMonth(month);
-  const users = await prisma.user.findMany({
-    where: { id: { in: memberIds }, isActive: true },
-    select: { id: true, name: true, email: true, avatar: true },
-    orderBy: { name: "asc" },
-  });
+  const { team, teamProjectIds, subtreeIds } = await resolveTeamScope(teamId);
+  const projectScope = teamProjectIds?.length ? teamProjectIds : null;
+
+  const [users, membershipRows] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: memberIds }, isActive: true },
+      select: { id: true, name: true, email: true, avatar: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.teamMember.findMany({
+      where: teamId
+        ? { teamId: { in: subtreeIds }, userId: { in: memberIds } }
+        : { userId: { in: memberIds } },
+      select: { userId: true, role: true },
+    }),
+  ]);
+
+  const roleRank = { TEAM_LEAD: 3, PROJECT_MANAGER: 2, MEMBER: 1 };
+  const roleByUser = {};
+  for (const row of membershipRows) {
+    const current = roleByUser[row.userId];
+    if (!current || (roleRank[row.role] ?? 0) > (roleRank[current] ?? 0)) {
+      roleByUser[row.userId] = row.role;
+    }
+  }
 
   const members = await Promise.all(
     users.map(async (user) => {
-      const kpis = await aggregateMonthlyKpis(user.id, period);
+      const [kpis, projects] = await Promise.all([
+        aggregateMonthlyKpis(user.id, period),
+        aggregateProjectBreakdown(user.id, period, projectScope),
+      ]);
       return {
         user,
         userId: user.id,
+        teamRole: roleByUser[user.id] ?? "MEMBER",
         month: period.month,
+        score: computePerformanceScore(kpis, period.month),
         kpis,
+        projects,
       };
     }),
   );
+
+  members.sort((a, b) => b.score - a.score || (b.kpis?.workShifts?.totalHours ?? 0) - (a.kpis?.workShifts?.totalHours ?? 0));
+
+  const summary = {
+    memberCount: members.length,
+    totalShiftHours: Math.round(members.reduce((s, m) => s + (m.kpis?.workShifts?.totalHours ?? 0), 0) * 100) / 100,
+    tasksCompleted: members.reduce((s, m) => s + (m.kpis?.projectTasks?.completed ?? 0), 0),
+    focusRate: members.length
+      ? Math.round(members.reduce((s, m) => s + (m.kpis?.focus?.completionRate ?? 0), 0) / members.length)
+      : 0,
+    avgScore: members.length
+      ? Math.round(members.reduce((s, m) => s + m.score, 0) / members.length)
+      : 0,
+    teamProjectCount: teamProjectIds?.length ?? 0,
+  };
 
   return {
     month: period.month,
@@ -306,6 +444,8 @@ export async function getTeamPerformance(viewerId, { teamId, month } = {}) {
       to: period.to.toISOString(),
     },
     teamId: teamId ?? null,
+    team,
+    summary,
     members,
   };
 }
