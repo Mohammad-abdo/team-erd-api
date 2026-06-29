@@ -302,7 +302,7 @@ export async function getTaskStats(userId, filters = {}) {
       },
     }),
     prisma.todayFocusItem.count({
-      where: { userId, focusDate, isDone: false },
+      where: { userId, focusDate, isDone: false, dismissedAt: null },
     }),
     prisma.projectTask.count({ where: { ...where, status: TaskStatus.IN_PROGRESS } }),
     prisma.projectTask.count({

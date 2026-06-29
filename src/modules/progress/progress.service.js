@@ -152,7 +152,7 @@ export async function getTeamCapacity(viewerId, { teamId, date, month } = {}) {
     prisma.todayFocusItem.findMany({
       where: { userId: { in: memberIds }, focusDate },
       orderBy: { sortOrder: "asc" },
-      select: { userId: true, title: true, isDone: true },
+      select: { userId: true, title: true, isDone: true, dismissedAt: true },
     }),
     prisma.workShift.findMany({
       where: {
@@ -212,7 +212,11 @@ export async function getTeamCapacity(viewerId, { teamId, date, month } = {}) {
 
   const focusTodayMap = new Map(memberIds.map((id) => [id, []]));
   for (const item of focusToday) {
-    focusTodayMap.get(item.userId)?.push({ title: item.title, isDone: item.isDone });
+    focusTodayMap.get(item.userId)?.push({
+      title: item.title,
+      isDone: item.isDone,
+      dismissedAt: item.dismissedAt,
+    });
   }
 
   const shiftMap = new Map(memberIds.map((id) => [id, {
@@ -278,7 +282,10 @@ export async function getTeamCapacity(viewerId, { teamId, date, month } = {}) {
       focus: {
         done: focusDone,
         total: focusItems.length,
-        items: focusItems.slice(0, 6),
+        items: focusItems
+          .filter((i) => !i.dismissedAt)
+          .slice(0, 6)
+          .map(({ title, isDone }) => ({ title, isDone })),
       },
       shift,
       month: {

@@ -1175,8 +1175,9 @@ model TodayFocusItem {
   focusDate   DateTime @db.Date @map("focus_date")
   title       String   @db.VarChar(500)
   sortOrder   Int      @default(0) @map("sort_order")
-  isDone      Boolean  @default(false) @map("is_done")
-  taskId      String?  @map("task_id")
+  isDone      Boolean   @default(false) @map("is_done")
+  dismissedAt DateTime? @map("dismissed_at")
+  taskId      String?   @map("task_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

@@ -79,7 +79,8 @@ r.delete(
   "/:itemId",
   requireAuth,
   asyncHandler(async (req, res) => {
-    await focusService.deleteFocusItem(req.user.sub, req.params.itemId);
+    const syncTask = req.query.syncTask === "true" || req.query.syncTask === "1";
+    await focusService.deleteFocusItem(req.user.sub, req.params.itemId, { syncTask });
     res.status(204).end();
   }),
 );

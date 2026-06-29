@@ -27,10 +27,23 @@ async function assertTaskLink(userId, taskId) {
   }
 }
 
+async function maybeSyncTaskOnComplete(userId, taskId, syncTask) {
+  if (!syncTask || !taskId) return;
+  try {
+    await assertTaskLink(userId, taskId);
+    await prisma.projectTask.update({
+      where: { id: taskId },
+      data: { status: TaskStatus.DONE, completedAt: new Date(), progress: 100 },
+    });
+  } catch (err) {
+    if (err?.statusCode === 403) throw err;
+  }
+}
+
 export async function listTodayFocus(userId, { date } = {}) {
   const focusDate = toDateOnly(date);
   return prisma.todayFocusItem.findMany({
-    where: { userId, focusDate },
+    where: { userId, focusDate, dismissedAt: null },
     orderBy: { sortOrder: "asc" },
     include: {
       task: {
@@ -86,6 +99,7 @@ export async function updateFocusItem(userId, itemId, input) {
     data: {
       ...(input.title !== undefined && { title: input.title.trim() }),
       ...(input.isDone !== undefined && { isDone: input.isDone }),
+      ...(input.isDone === false ? { dismissedAt: null } : {}),
     },
     include: {
       task: {
@@ -99,16 +113,7 @@ export async function updateFocusItem(userId, itemId, input) {
   });
 
   if (input.isDone === true && input.syncTask && row.taskId) {
-    try {
-      await assertTaskLink(userId, row.taskId); // re-check permission — user may have been unassigned
-      await prisma.projectTask.update({
-        where: { id: row.taskId },
-        data: { status: TaskStatus.DONE, completedAt: new Date(), progress: 100 },
-      });
-    } catch (err) {
-      if (err?.statusCode === 403) throw err; // propagate authorization errors
-      // task was deleted — skip sync gracefully
-    }
+    await maybeSyncTaskOnComplete(userId, row.taskId, true);
   }
 
   return item;
@@ -117,7 +122,7 @@ export async function updateFocusItem(userId, itemId, input) {
 export async function reorderFocusItems(userId, { date, orderedIds }) {
   const focusDate = toDateOnly(date);
   const rows = await prisma.todayFocusItem.findMany({
-    where: { userId, focusDate },
+    where: { userId, focusDate, dismissedAt: null },
     select: { id: true },
   });
   const allowed = new Set(rows.map((r) => r.id));
@@ -135,12 +140,22 @@ export async function reorderFocusItems(userId, { date, orderedIds }) {
   return listTodayFocus(userId, { date: focusDate });
 }
 
-export async function deleteFocusItem(userId, itemId) {
+export async function deleteFocusItem(userId, itemId, { syncTask = false } = {}) {
   const row = await prisma.todayFocusItem.findFirst({
     where: { id: itemId, userId },
   });
   if (!row) throw new HttpError(404, "Focus item not found");
-  await prisma.todayFocusItem.delete({ where: { id: itemId } });
+  if (row.dismissedAt) return;
+
+  await prisma.todayFocusItem.update({
+    where: { id: itemId },
+    data: {
+      isDone: true,
+      dismissedAt: new Date(),
+    },
+  });
+
+  await maybeSyncTaskOnComplete(userId, row.taskId, syncTask);
 }
 
 export async function getTeamFocusSummary(viewerId, { teamId, date } = {}) {
@@ -156,7 +171,7 @@ export async function getTeamFocusSummary(viewerId, { teamId, date } = {}) {
   });
 
   const items = await prisma.todayFocusItem.findMany({
-    where: { userId: { in: memberIds }, focusDate },
+    where: { userId: { in: memberIds }, focusDate, dismissedAt: null },
     orderBy: { sortOrder: "asc" },
     select: { userId: true, title: true, isDone: true },
   });
