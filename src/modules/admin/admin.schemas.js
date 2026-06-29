@@ -6,6 +6,7 @@ export const createUserSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(8).max(128),
   platformRole: z.nativeEnum(PlatformRole).optional(),
+  organizationId: z.string().min(1).optional().nullable(),
 });
 
 export const updateUserSchema = z.object({

@@ -2,6 +2,7 @@ import { PlatformRole, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause, userIsOrgAdmin } from "../../lib/orgScope.js";
+import { getManagerTeamIds } from "../../lib/teamHierarchy.js";
 import { emitToProject } from "../../sockets/emit.js";
 import { logActivity } from "../activity/activity.service.js";
 
@@ -15,6 +16,45 @@ async function uniqueSlug(base) {
     slug = `${slugify(base)}-${Math.random().toString(36).slice(2, 8)}`;
   }
   throw new HttpError(500, "Could not allocate slug");
+}
+
+async function assertCanManageProject(projectId, userId) {
+  const [project, user] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        id: true,
+        leaderId: true,
+        organizationId: true,
+        teamProjects: { select: { teamId: true } },
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true, organizationId: true },
+    }),
+  ]);
+  if (!project) throw new HttpError(404, "Project not found");
+  if (!user) throw new HttpError(403, "Forbidden");
+
+  if (project.leaderId === userId) return project;
+
+  if (user.platformRole === PlatformRole.SUPER_ADMIN) return project;
+
+  if (
+    userIsOrgAdmin(user)
+    && (user.organizationId ?? DEFAULT_ORG_ID) === (project.organizationId ?? DEFAULT_ORG_ID)
+  ) {
+    return project;
+  }
+
+  const managerTeamIds = await getManagerTeamIds(userId);
+  const projectTeamIds = project.teamProjects.map((tp) => tp.teamId);
+  if (projectTeamIds.some((tid) => managerTeamIds.includes(tid))) {
+    return project;
+  }
+
+  throw new HttpError(403, "Only the project leader or a team manager can modify this project");
 }
 
 const projectDashboardInclude = (userId) => ({
@@ -102,9 +142,20 @@ export async function listProjectsForUser(userId, { teamId } = {}) {
   });
 }
 
+function defaultProjectDates(input = {}) {
+  const start = input.startDate ? new Date(input.startDate) : new Date();
+  start.setHours(0, 0, 0, 0);
+  const deadline = input.deadline ? new Date(input.deadline) : new Date(start);
+  if (!input.deadline) {
+    deadline.setDate(deadline.getDate() + 30);
+  }
+  return { startDate: start, deadline };
+}
+
 export async function createProject(userId, input) {
   const slug = await uniqueSlug(input.name);
   const organizationId = await getUserOrganizationId(userId);
+  const { startDate, deadline } = defaultProjectDates(input);
 
   const emptyUrl = (v) => (v === "" ? null : v ?? null);
 
@@ -117,8 +168,8 @@ export async function createProject(userId, input) {
         visibility: input.visibility,
         leaderId: userId,
         organizationId: organizationId ?? DEFAULT_ORG_ID,
-        startDate: new Date(input.startDate),
-        deadline: new Date(input.deadline),
+        startDate,
+        deadline,
         clientRequirements: input.clientRequirements?.trim() ?? null,
         examplesJson: input.examplesJson ?? null,
         figmaUrl: emptyUrl(input.figmaUrl),
@@ -195,12 +246,7 @@ export async function getProjectByIdForUser(projectId, userId) {
 }
 
 export async function updateProject(projectId, userId, input) {
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, leaderId: userId },
-  });
-  if (!project) {
-    throw new HttpError(403, "Only the leader can update this project");
-  }
+  const project = await assertCanManageProject(projectId, userId);
 
   const oldValues = {
     name: project.name,
@@ -251,12 +297,7 @@ export async function updateProject(projectId, userId, input) {
 }
 
 export async function deleteProject(projectId, userId) {
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, leaderId: userId },
-  });
-  if (!project) {
-    throw new HttpError(403, "Only the leader can delete this project");
-  }
+  await assertCanManageProject(projectId, userId);
 
   emitToProject(projectId, "project:deleted", { at: Date.now() });
 

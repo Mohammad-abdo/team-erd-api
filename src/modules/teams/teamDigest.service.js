@@ -226,12 +226,19 @@ export async function runScheduledWeeklyDigests() {
     }
   }
 
+  // Pre-compute one digest per org — avoids redundant DB work when an org has multiple admins
+  const orgDigestCache = new Map();
   for (const admin of orgAdmins) {
     if (!admin.email || emailed.has(admin.email) || !admin.organizationId) continue;
     const orgTeams = teams.filter((t) => t.organizationId === admin.organizationId);
     if (!orgTeams.length) continue;
     try {
-      const digest = await buildTeamDigest(orgTeams[0].id);
+      const cacheKey = orgTeams[0].id;
+      let digest = orgDigestCache.get(cacheKey);
+      if (!digest) {
+        digest = await buildTeamDigest(cacheKey);
+        orgDigestCache.set(cacheKey, digest);
+      }
       const subject = `Organization weekly digest`;
       const text = buildDigestText({ name: "Your organization" }, digest.rows, digest.weekLabel);
       const html = buildDigestHtml({ name: "Your organization" }, digest.rows, digest.weekLabel);

@@ -5,7 +5,7 @@ import { slugify } from "../../utils/slug.js";
 import { logAdminAudit } from "../../lib/audit.js";
 import { isOrgAdmin, isSuperAdmin } from "../../middleware/adminAccess.js";
 import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause } from "../../lib/orgScope.js";
-import { getDescendantTeamIds } from "../../lib/teamHierarchy.js";
+import { getDescendantTeamIds, isManagerRole } from "../../lib/teamHierarchy.js";
 
 async function uniqueTeamSlug(base) {
   let slug = slugify(base);
@@ -38,7 +38,7 @@ export async function assertTeamManager(userId, teamId) {
     const member = await prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
     });
-    if (member?.role === TeamRole.TEAM_LEAD || member?.role === TeamRole.PROJECT_MANAGER) {
+    if (isManagerRole(member?.role)) {
       return { isAdmin: false, member };
     }
     throw new HttpError(403, "Team admin must be team lead or project manager on this team");
@@ -46,7 +46,7 @@ export async function assertTeamManager(userId, teamId) {
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
   });
-  if (!member || (member.role !== TeamRole.TEAM_LEAD && member.role !== TeamRole.PROJECT_MANAGER)) {
+  if (!member || !isManagerRole(member.role)) {
     throw new HttpError(403, "Team manager or organization admin required");
   }
   return { isAdmin: false, member };

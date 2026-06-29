@@ -54,10 +54,17 @@ export async function registerOrganization(input) {
   };
 }
 
+function resolveActorOrgId(actor) {
+  if (actor.isSuperAdmin && !actor.user.organizationId) {
+    return DEFAULT_ORG_ID;
+  }
+  return actor.user.organizationId ?? DEFAULT_ORG_ID;
+}
+
 export async function getOrgSettings(userId) {
   const actor = await loadAdminActor(userId);
   const org = await prisma.organization.findUnique({
-    where: { id: actor.organizationId ?? DEFAULT_ORG_ID },
+    where: { id: resolveActorOrgId(actor) },
   });
   if (!org) throw new HttpError(404, "Organization not found");
   return org;
@@ -65,7 +72,7 @@ export async function getOrgSettings(userId) {
 
 export async function patchOrgSettings(userId, input) {
   const actor = await loadAdminActor(userId);
-  const orgId = actor.organizationId ?? DEFAULT_ORG_ID;
+  const orgId = resolveActorOrgId(actor);
   const current = await prisma.organization.findUnique({ where: { id: orgId } });
   if (!current) throw new HttpError(404, "Organization not found");
 
@@ -101,7 +108,12 @@ export async function getOrganization(orgId) {
 }
 
 export async function listOrganizationsForSuperAdmin() {
-  return prisma.organization.findMany({ orderBy: { createdAt: "desc" } });
+  return prisma.organization.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { users: true, teams: true, projects: true } },
+    },
+  });
 }
 
 export const registerOrganizationSchema = z.object({

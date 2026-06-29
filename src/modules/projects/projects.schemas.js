@@ -17,15 +17,18 @@ export const createProjectSchema = z.object({
   description: z.string().max(5000).optional(),
   visibility: visibility.optional(),
   teamIds: z.array(z.string()).optional(),
-  startDate: dateString,
-  deadline: dateString,
+  startDate: dateString.optional(),
+  deadline: dateString.optional(),
   clientRequirements: z.string().max(50000).optional(),
   examplesJson: z.array(exampleItem).optional(),
   figmaUrl: urlOrEmpty.optional(),
   githubUrl: urlOrEmpty.optional(),
   liveUrl: urlOrEmpty.optional(),
   docsUrl: urlOrEmpty.optional(),
-}).refine((d) => new Date(d.deadline) >= new Date(d.startDate), {
+}).refine((d) => {
+  if (!d.startDate || !d.deadline) return true;
+  return new Date(d.deadline) >= new Date(d.startDate);
+}, {
   message: "deadline must be on or after startDate",
   path: ["deadline"],
 });

@@ -222,6 +222,15 @@ export async function previewOrganizationInvitation(token) {
 
 async function fulfillOrganizationInvitation(invitation, userId) {
   await prisma.$transaction(async (tx) => {
+    // Re-check inside transaction to prevent double-accept races
+    const current = await tx.organizationInvitation.findUnique({
+      where: { id: invitation.id },
+      select: { acceptedAt: true },
+    });
+    if (current?.acceptedAt) {
+      throw new HttpError(400, "Invitation was just accepted by another session");
+    }
+
     await tx.user.update({
       where: { id: userId },
       data: {

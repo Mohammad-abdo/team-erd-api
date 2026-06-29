@@ -88,6 +88,34 @@ function resolveUrl(rawUrl, baseUrl, vars) {
   return `${base}${path}`;
 }
 
+const PRIVATE_IP_RE = [
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2[0-9]|3[01])\./,
+  /^192\.168\./,
+  /^169\.254\./,
+  /^0\./,
+  /^::1$/,
+  /^fc00:/i,
+  /^fe80:/i,
+  /^localhost$/i,
+];
+
+function validateProxyTarget(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new HttpError(400, "Invalid URL");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new HttpError(400, "Only http and https URLs are allowed");
+  }
+  if (PRIVATE_IP_RE.some((r) => r.test(parsed.hostname))) {
+    throw new HttpError(400, "Requests to private or internal addresses are not allowed");
+  }
+}
+
 async function pruneHistory(projectId, userId) {
   const stale = await prisma.apiRequestHistory.findMany({
     where: { projectId, userId },
@@ -149,6 +177,7 @@ export async function executeProxy(projectId, userId, input) {
 
   const method = (input.method ?? "GET").toUpperCase();
   const url = resolveUrl(input.url, input.baseUrl ?? testSettings.baseUrl, vars);
+  validateProxyTarget(url); // block SSRF to private/internal addresses
   const auth = buildAuthHeaders(input.authType, input.authConfig, vars);
 
   let headers = {

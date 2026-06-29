@@ -7,6 +7,7 @@ import { requireSuperAdmin } from "../../middleware/adminAccess.js";
 import { requireOrgAdmin } from "../../middleware/adminAccess.js";
 import orgInvitationsRoutes from "./invitations.routes.js";
 import orgExportRoutes from "./export.routes.js";
+import { listOrgAccessRequests } from "../accessRequests/accessRequests.service.js";
 
 const r = Router();
 
@@ -31,6 +32,16 @@ r.patch(
   asyncHandler(async (req, res) => {
     const organization = await orgService.patchOrgSettings(req.user.sub, req.body);
     res.json({ organization });
+  }),
+);
+
+r.get(
+  "/access-requests",
+  requireAuth,
+  requireOrgAdmin,
+  asyncHandler(async (req, res) => {
+    const requests = await listOrgAccessRequests(req.user.sub);
+    res.json({ requests });
   }),
 );
 

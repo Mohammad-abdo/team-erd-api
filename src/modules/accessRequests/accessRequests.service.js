@@ -1,27 +1,54 @@
-import { AccessRequestStatus, ProjectMemberRole, TeamRole } from "@prisma/client";
+import { AccessRequestStatus, PlatformRole, ProjectMemberRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { deliverNotification } from "../../lib/notify.js";
 import { addMemberDirect } from "../projects/members.service.js";
 import { resolveProjectMembership } from "../../lib/projectMembership.js";
+import { DEFAULT_ORG_ID, userIsOrgAdmin } from "../../lib/orgScope.js";
+import { loadAdminActor } from "../../lib/adminScope.js";
 
 async function assertCanReview(projectId, actorId) {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { leaderId: true },
-  });
+  const [project, actor] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id: projectId },
+      select: { leaderId: true, organizationId: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: actorId },
+      select: { platformRole: true, organizationId: true },
+    }),
+  ]);
   if (!project) throw new HttpError(404, "Project not found");
   if (project.leaderId === actorId) return project;
+
+  if (
+    actor
+    && userIsOrgAdmin(actor)
+    && (actor.organizationId ?? DEFAULT_ORG_ID) === (project.organizationId ?? DEFAULT_ORG_ID)
+  ) {
+    return project;
+  }
+
+  if (actor?.platformRole === PlatformRole.SUPER_ADMIN) {
+    return project;
+  }
 
   const teamLead = await prisma.teamProject.findFirst({
     where: {
       projectId,
-      team: { members: { some: { userId: actorId, role: TeamRole.TEAM_LEAD } } },
+      team: {
+        members: {
+          some: {
+            userId: actorId,
+            role: { in: [TeamRole.TEAM_LEAD, TeamRole.PROJECT_MANAGER] },
+          },
+        },
+      },
     },
   });
   if (teamLead) return project;
 
-  throw new HttpError(403, "Only project leader or team lead can review access requests");
+  throw new HttpError(403, "Only project leader, team manager, or org admin can review access requests");
 }
 
 export async function createAccessRequest({ projectId, userId, requestedRole, message }) {
@@ -73,6 +100,26 @@ export async function listProjectAccessRequests(projectId, actorId) {
     orderBy: { createdAt: "desc" },
     include: {
       user: { select: { id: true, name: true, email: true, avatar: true } },
+    },
+  });
+}
+
+/** All pending access requests for projects in the actor's organization. */
+export async function listOrgAccessRequests(actorId) {
+  const actor = await loadAdminActor(actorId);
+  const projectWhere = actor.isSuperAdmin
+    ? {}
+    : { organizationId: actor.user.organizationId ?? DEFAULT_ORG_ID };
+
+  return prisma.accessRequest.findMany({
+    where: {
+      status: AccessRequestStatus.PENDING,
+      project: projectWhere,
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      user: { select: { id: true, name: true, email: true, avatar: true } },
+      project: { select: { id: true, name: true } },
     },
   });
 }

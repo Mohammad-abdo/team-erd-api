@@ -28,6 +28,9 @@ const ALLOWED_MIME = new Set([
 ]);
 
 function ensureUploadDir(projectId) {
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(projectId)) {
+    throw new HttpError(400, "Invalid project ID");
+  }
   const dir = path.join(UPLOAD_ROOT, projectId);
   fs.mkdirSync(dir, { recursive: true });
   return dir;

@@ -106,10 +106,16 @@ export async function updateFocusItem(userId, itemId, input) {
   });
 
   if (input.isDone === true && input.syncTask && row.taskId) {
-    await prisma.projectTask.update({
-      where: { id: row.taskId },
-      data: { status: TaskStatus.DONE, completedAt: new Date(), progress: 100 },
-    });
+    try {
+      await assertTaskLink(userId, row.taskId); // re-check permission — user may have been unassigned
+      await prisma.projectTask.update({
+        where: { id: row.taskId },
+        data: { status: TaskStatus.DONE, completedAt: new Date(), progress: 100 },
+      });
+    } catch (err) {
+      if (err?.statusCode === 403) throw err; // propagate authorization errors
+      // task was deleted — skip sync gracefully
+    }
   }
 
   return item;

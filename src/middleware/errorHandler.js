@@ -12,6 +12,22 @@ export function errorHandler(err, _req, res, _next) {
     if (err.code === "P2025") {
       return res.status(404).json({ error: "Record not found" });
     }
+    if (err.code === "P2022") {
+      return res.status(503).json({
+        error: "Database schema is out of date — run: npx prisma migrate deploy",
+        code: "SCHEMA_OUT_OF_DATE",
+      });
+    }
+  }
+
+  if (
+    err instanceof Prisma.PrismaClientValidationError
+    || (typeof err.message === "string" && /Unknown column|column.*does not exist/i.test(err.message))
+  ) {
+    return res.status(503).json({
+      error: "Database schema is out of date — run: npx prisma migrate deploy",
+      code: "SCHEMA_OUT_OF_DATE",
+    });
   }
 
   const status = err.status ?? err.statusCode ?? 500;

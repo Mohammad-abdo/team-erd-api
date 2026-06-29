@@ -62,6 +62,8 @@ export async function listAllUsers(adminId, { skip = 0, take = 50 } = {}) {
         platformRole: true,
         isActive: true,
         createdAt: true,
+        organizationId: true,
+        organization: { select: { id: true, name: true, slug: true } },
         teamMemberships: {
           include: { team: { select: { id: true, name: true, slug: true, color: true } } },
         },
@@ -80,6 +82,8 @@ export async function listAllUsers(adminId, { skip = 0, take = 50 } = {}) {
       platformRole: u.platformRole,
       isActive: u.isActive,
       createdAt: u.createdAt,
+      organizationId: u.organizationId,
+      organization: u.organization,
       projectCount: u._count.projectMembers,
       teams: u.teamMemberships.map((m) => ({
         id: m.team.id,
@@ -438,6 +442,7 @@ export async function listAllProjects(adminId, { skip = 0, take = 50 } = {}) {
       take,
       include: {
         leader: { select: { id: true, name: true, email: true } },
+        organization: { select: { id: true, name: true, slug: true } },
         teamProjects: { include: { team: { select: { id: true, name: true, slug: true, color: true } } } },
         _count: { select: { members: true, erdTables: true, erdRelations: true, comments: true } },
       },
@@ -456,6 +461,7 @@ export async function listAllProjects(adminId, { skip = 0, take = 50 } = {}) {
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
       leader: p.leader,
+      organization: p.organization,
       teams: p.teamProjects.map((tp) => tp.team),
       counts: p._count,
     })),

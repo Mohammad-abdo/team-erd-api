@@ -30,7 +30,7 @@ function parseMonth(month) {
 }
 
 function shiftHours(shift) {
-  const end = shift.endedAt ? new Date(shift.endedAt) : new Date(shift.startedAt);
+  const end = shift.endedAt ? new Date(shift.endedAt) : new Date(); // open shifts use current time
   const start = new Date(shift.startedAt);
   return Math.max(0, (end.getTime() - start.getTime()) / 3600000);
 }

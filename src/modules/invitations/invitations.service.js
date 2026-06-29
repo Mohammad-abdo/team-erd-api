@@ -2,7 +2,6 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
 import { signAccessToken, persistRefreshToken } from "../../lib/tokens.js";
-import * as membersService from "../projects/members.service.js";
 
 const SALT_ROUNDS = 10;
 
@@ -58,19 +57,27 @@ export async function registerViaProjectInvitation({ token, name, password }) {
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-  const user = await prisma.user.create({
-    data: {
-      name: name.trim(),
-      email: normalized,
-      passwordHash,
-    },
-    select: { id: true, name: true, email: true, avatar: true, createdAt: true },
-  });
+  // Wrap user creation + member creation + token consumption in one transaction
+  const { user, member } = await prisma.$transaction(async (tx) => {
+    // Re-check inside transaction to handle concurrent requests on the same token
+    const inv = await tx.projectInvitation.findUnique({ where: { token } });
+    if (!inv || inv.acceptedAt) throw new HttpError(400, "Invitation was just used");
 
-  const acceptResult = await membersService.acceptInvitation({
-    userId: user.id,
-    userEmail: user.email,
-    token,
+    const created = await tx.user.create({
+      data: { name: name.trim(), email: normalized, passwordHash },
+      select: { id: true, name: true, email: true, avatar: true, createdAt: true },
+    });
+
+    const m = await tx.projectMember.create({
+      data: { projectId: inv.projectId, userId: created.id, role: inv.role },
+    });
+
+    await tx.projectInvitation.update({
+      where: { id: inv.id },
+      data: { acceptedAt: new Date() },
+    });
+
+    return { user: created, member: m };
   });
 
   const accessToken = signAccessToken({ sub: user.id, email: user.email });
@@ -78,12 +85,12 @@ export async function registerViaProjectInvitation({ token, name, password }) {
 
   return {
     user,
-    projectId: acceptResult.projectId,
+    projectId: invitation.projectId,
     project: invitation.project,
     member: {
-      id: acceptResult.member.id,
-      role: acceptResult.member.role,
-      joinedAt: acceptResult.member.joinedAt,
+      id: member.id,
+      role: member.role,
+      joinedAt: member.joinedAt ?? member.createdAt,
     },
     accessToken,
     refreshToken: refresh.token,

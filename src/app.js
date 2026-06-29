@@ -86,6 +86,17 @@ function healthLiveness(_req, res) {
     ok: true,
     service: "dbforge-api",
     basePath: config.apiBasePath || null,
+    build: "2026-07-roadmap",
+    features: [
+      "shifts-team",
+      "focus-team",
+      "performance",
+      "org-settings",
+      "org-export",
+      "org-invitations",
+      "api-studio",
+      "org-access-requests",
+    ],
   });
 }
 
