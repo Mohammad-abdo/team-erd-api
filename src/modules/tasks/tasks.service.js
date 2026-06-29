@@ -209,14 +209,13 @@ export async function getKanbanBoard(userId, filters = {}) {
   return { columns, tasks };
 }
 
-export async function getMemberProgress(userId, { teamId, projectId } = {}) {
-  const projectIds = await accessibleProjectIds(userId, projectId);
+export async function getMemberProgress(userId, filters = {}) {
+  const projectIds = await accessibleProjectIds(userId, filters.projectId);
   if (!projectIds.length) return [];
 
   const where = {
-    projectId: { in: projectIds },
+    ...buildTaskWhere(projectIds, { ...filters, viewerId: userId }),
     status: { not: TaskStatus.DONE },
-    ...(teamId ? { project: { teamProjects: { some: { teamId } } } } : {}),
   };
 
   const tasks = await prisma.projectTask.findMany({
@@ -232,6 +231,7 @@ export async function getMemberProgress(userId, { teamId, projectId } = {}) {
       : [{ id: "unassigned", name: "Unassigned", avatar: null }];
 
     for (const u of users) {
+      if (filters.assigneeId && u.id !== filters.assigneeId) continue;
       if (!byUser.has(u.id)) {
         byUser.set(u.id, {
           user: u.id === "unassigned" ? null : u,

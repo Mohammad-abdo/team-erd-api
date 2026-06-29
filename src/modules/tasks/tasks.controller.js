@@ -80,6 +80,13 @@ export const getProgress = asyncHandler(async (req, res) => {
   const members = await tasksService.getMemberProgress(req.user.sub, {
     teamId: req.query.teamId,
     projectId: req.query.projectId,
+    assigneeId: req.query.assigneeId,
+    status: req.query.status,
+    search: req.query.search,
+    priority: req.query.priority,
+    dueFrom: req.query.dueFrom,
+    dueTo: req.query.dueTo,
+    category: req.query.category,
   });
   res.json({ members });
 });
