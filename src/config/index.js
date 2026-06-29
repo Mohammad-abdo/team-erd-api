@@ -108,6 +108,7 @@ export const config = {
   storage: {
     commentAttachmentsDir: process.env.COMMENT_ATTACHMENTS_DIR?.trim() || null,
     avatarsDir: process.env.AVATARS_DIR?.trim() || null,
+    orgLogosDir: process.env.ORG_LOGOS_DIR?.trim() || null,
   },
   redis: {
     url: process.env.REDIS_URL?.trim() || null,
