@@ -170,7 +170,7 @@ r.get(
   requireAuth,
   requireSuperAdmin,
   asyncHandler(async (req, res) => {
-    const organization = await orgService.getOrganization(req.params.orgId);
+    const organization = await orgService.getOrganizationDetail(req.params.orgId);
     res.json({ organization });
   }),
 );

@@ -205,13 +205,113 @@ export async function getOrganization(orgId) {
   return org;
 }
 
+export async function getOrganizationDetail(orgId) {
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    include: {
+      _count: {
+        select: {
+          users: true,
+          teams: true,
+          projects: true,
+          workShifts: true,
+          invitations: true,
+        },
+      },
+    },
+  });
+  if (!org) throw new HttpError(404, "Organization not found");
+
+  const [activeUsers, admins, teams, projects] = await Promise.all([
+    prisma.user.count({ where: { organizationId: orgId, isActive: true } }),
+    prisma.user.findMany({
+      where: { organizationId: orgId, platformRole: PlatformRole.ORG_ADMIN },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatar: true,
+        isActive: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.team.findMany({
+      where: { organizationId: orgId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        color: true,
+        createdAt: true,
+        _count: { select: { members: true, projects: true } },
+      },
+      orderBy: { name: "asc" },
+      take: 100,
+    }),
+    prisma.project.findMany({
+      where: { organizationId: orgId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        healthStage: true,
+        createdAt: true,
+        _count: { select: { members: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
+  ]);
+
+  const settings = typeof org.settings === "object" && org.settings ? org.settings : {};
+
+  return {
+    id: org.id,
+    name: org.name,
+    slug: org.slug,
+    createdAt: org.createdAt,
+    settings,
+    stats: {
+      activeUsers,
+      totalUsers: org._count.users,
+      teams: org._count.teams,
+      projects: org._count.projects,
+      workShifts: org._count.workShifts,
+      invitations: org._count.invitations,
+    },
+    admins,
+    teams: teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      slug: team.slug,
+      color: team.color,
+      createdAt: team.createdAt,
+      memberCount: team._count.members,
+      projectCount: team._count.projects,
+    })),
+    projects: projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      healthStage: project.healthStage,
+      createdAt: project.createdAt,
+      memberCount: project._count.members,
+    })),
+  };
+}
+
 export async function listOrganizationsForSuperAdmin() {
-  return prisma.organization.findMany({
+  const rows = await prisma.organization.findMany({
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { users: true, teams: true, projects: true } },
     },
   });
+  return rows.map((org) => ({
+    ...org,
+    settings: typeof org.settings === "object" && org.settings ? org.settings : {},
+  }));
 }
 
 export const registerOrganizationSchema = z.object({
