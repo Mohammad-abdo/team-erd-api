@@ -36,8 +36,34 @@ export async function assertCanEditTask(actorId, task, projectId) {
   throw new HttpError(403, "You can only edit your own tasks or tasks for your team");
 }
 
-/** Create task: members may only assign to self unless team lead over assignees. */
-export async function assertCanAssignTask(actorId, assigneeIds) {
+async function assertAssigneesAreProjectMembers(projectId, assigneeIds) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      leaderId: true,
+      members: { select: { userId: true } },
+    },
+  });
+  if (!project) throw new HttpError(404, "Project not found");
+
+  const allowed = new Set(project.members.map((m) => m.userId));
+  if (project.leaderId) allowed.add(project.leaderId);
+
+  for (const uid of assigneeIds) {
+    if (!allowed.has(uid)) {
+      throw new HttpError(400, "Assignee must be a project member");
+    }
+  }
+}
+
+/**
+ * Who may set assignees on project tasks:
+ * - org/super admin
+ * - project leader → any project member
+ * - team manager (PM/TL) over assignee in managed subtree
+ * - otherwise self only
+ */
+export async function assertCanAssignTask(actorId, assigneeIds, projectId) {
   const user = await prisma.user.findUnique({
     where: { id: actorId },
     select: { platformRole: true, organizationId: true },
@@ -45,6 +71,12 @@ export async function assertCanAssignTask(actorId, assigneeIds) {
   if (userIsOrgAdmin(user) || await isOrgAdminById(actorId)) return;
 
   const ids = assigneeIds?.length ? assigneeIds : [actorId];
+
+  if (projectId && await isProjectLeader(actorId, projectId)) {
+    await assertAssigneesAreProjectMembers(projectId, ids);
+    return;
+  }
+
   for (const uid of ids) {
     if (uid === actorId) continue;
     if (!(await isTeamLeadOverUser(actorId, uid, user))) {

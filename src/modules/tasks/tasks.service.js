@@ -393,7 +393,7 @@ export async function createTask(projectId, userId, input) {
   if (!project) throw new HttpError(404, "Project not found");
 
   const assigneeIds = input.assigneeIds ?? [];
-  await assertCanAssignTask(userId, assigneeIds.length ? assigneeIds : [userId]);
+  await assertCanAssignTask(userId, assigneeIds.length ? assigneeIds : [userId], projectId);
   await assertAssigneesAreMembers(projectId, assigneeIds.length ? assigneeIds : [userId]);
   const finalAssignees = assigneeIds.length ? assigneeIds : [userId];
 
@@ -446,7 +446,7 @@ export async function updateTask(projectId, taskId, userId, input) {
   await assertCanEditTask(userId, existing, projectId);
 
   if (input.assigneeIds) {
-    await assertCanAssignTask(userId, input.assigneeIds);
+    await assertCanAssignTask(userId, input.assigneeIds, projectId);
     await assertAssigneesAreMembers(projectId, input.assigneeIds);
   }
 

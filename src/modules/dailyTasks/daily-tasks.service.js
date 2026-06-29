@@ -1,7 +1,9 @@
-import { DailyTaskSource, TaskStatus, TeamRole } from "@prisma/client";
+import { DailyTaskSource, TaskStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
-import { isPlatformAdmin } from "../../middleware/adminAccess.js";
+import { isOrgAdmin, isSuperAdmin } from "../../middleware/adminAccess.js";
+import { userIsOrgAdmin } from "../../lib/orgScope.js";
+import { getManagedTeamIds, isManagerRole } from "../../lib/teamHierarchy.js";
 
 const taskInclude = {
   team: { select: { id: true, name: true, color: true, slug: true } },
@@ -48,17 +50,31 @@ function dateToKey(d) {
 }
 
 async function getTeamAccess(userId, teamId) {
-  const admin = await isPlatformAdmin(userId);
-  if (admin) return { isAdmin: true, isLead: true, member: null };
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { platformRole: true, organizationId: true },
+  });
+
+  const isAdmin = userIsOrgAdmin(user)
+    || await isOrgAdmin(userId)
+    || await isSuperAdmin(userId);
+
+  if (isAdmin) {
+    return { isAdmin: true, canAssign: true, member: null };
+  }
+
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
   });
   if (!member) throw new HttpError(403, "Not a team member");
-  return {
-    isAdmin: false,
-    isLead: member.role === TeamRole.TEAM_LEAD,
-    member,
-  };
+
+  let canAssign = isManagerRole(member.role);
+  if (!canAssign) {
+    const managed = await getManagedTeamIds(userId, user);
+    canAssign = managed.includes(teamId);
+  }
+
+  return { isAdmin: false, canAssign, member };
 }
 
 async function assertAssigneeInTeam(teamId, assigneeId) {
@@ -81,7 +97,7 @@ async function notifyAssignee({ task, team, assigneeId, actorId }) {
 }
 
 function canManageTask(access, userId, task) {
-  if (access.isAdmin || access.isLead) return true;
+  if (access.isAdmin || access.canAssign) return true;
   return task.assigneeId === userId || task.createdById === userId;
 }
 
@@ -98,11 +114,11 @@ export async function listTeamDailyTasks(userId, teamId, { date, assigneeId, sta
   if (mine) {
     where.assigneeId = userId;
   } else if (assigneeId) {
-    if (!access.isLead && !access.isAdmin && assigneeId !== userId) {
-      throw new HttpError(403, "Only team leads can view other members' tasks");
+    if (!access.canAssign && !access.isAdmin && assigneeId !== userId) {
+      throw new HttpError(403, "Only team managers can view other members' tasks");
     }
     where.assigneeId = assigneeId;
-  } else if (!access.isLead && !access.isAdmin) {
+  } else if (!access.canAssign && !access.isAdmin) {
     where.assigneeId = userId;
   }
 
@@ -122,7 +138,7 @@ export async function getTeamDailyTaskStats(userId, teamId, { date } = {}) {
   const baseWhere = {
     teamId,
     taskDate,
-    ...(!access.isLead && !access.isAdmin ? { assigneeId: userId } : {}),
+    ...(!access.canAssign && !access.isAdmin ? { assigneeId: userId } : {}),
   };
 
   const [total, todo, inProgress, done, assigned, personal] = await Promise.all([
@@ -158,8 +174,8 @@ export async function createDailyTask(userId, teamId, input) {
   let source = DailyTaskSource.PERSONAL;
 
   if (isAssignedToOther) {
-    if (!access.isLead && !access.isAdmin) {
-      throw new HttpError(403, "Only team leads can assign tasks to others");
+    if (!access.canAssign && !access.isAdmin) {
+      throw new HttpError(403, "Only team managers can assign tasks to others");
     }
     source = DailyTaskSource.ASSIGNED;
   }
@@ -212,8 +228,8 @@ export async function updateDailyTask(userId, teamId, taskId, input) {
   if (input.taskDate !== undefined) data.taskDate = toDateOnly(input.taskDate);
 
   if (input.assigneeId !== undefined) {
-    if (!access.isLead && !access.isAdmin) {
-      throw new HttpError(403, "Only team leads can reassign tasks");
+    if (!access.canAssign && !access.isAdmin) {
+      throw new HttpError(403, "Only team managers can reassign tasks");
     }
     await assertAssigneeInTeam(teamId, input.assigneeId);
     data.assigneeId = input.assigneeId;
