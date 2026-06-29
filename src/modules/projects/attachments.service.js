@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
@@ -51,4 +52,14 @@ export async function deleteProjectAttachment(projectId, attachmentId, userId) {
   }
 
   await prisma.projectAttachment.delete({ where: { id: attachmentId } });
+}
+
+export async function getProjectAttachmentFile(projectId, attachmentId) {
+  const row = await prisma.projectAttachment.findFirst({
+    where: { id: attachmentId, projectId },
+  });
+  if (!row) throw new HttpError(404, "Attachment not found");
+  const filePath = path.join(UPLOAD_ROOT, row.storedPath);
+  if (!fs.existsSync(filePath)) throw new HttpError(404, "File not found on server");
+  return { filePath, fileName: row.fileName, mimeType: row.mimeType };
 }

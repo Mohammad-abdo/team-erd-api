@@ -19,6 +19,7 @@ import {
   requireClientHealthAccess,
   requireClientReportAccess,
 } from "../../middleware/clientPortal.js";
+import attachmentsRouter from "./attachments.routes.js";
 
 const r = Router();
 
@@ -53,6 +54,8 @@ r.post(
     res.json({ healthStage });
   }),
 );
+
+r.use("/:projectId/attachments", attachmentsRouter);
 
 r.get("/:id", projectsController.getOne);
 r.put("/:id", validate(updateProjectSchema), projectsController.update);

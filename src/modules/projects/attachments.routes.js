@@ -32,6 +32,17 @@ r.post(
   }),
 );
 
+r.get(
+  "/:attachmentId/download",
+  asyncHandler(async (req, res) => {
+    const { filePath, fileName } = await attachmentsService.getProjectAttachmentFile(
+      req.params.projectId,
+      req.params.attachmentId,
+    );
+    res.download(filePath, fileName);
+  }),
+);
+
 r.delete(
   "/:attachmentId",
   asyncHandler(async (req, res) => {

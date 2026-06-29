@@ -1,6 +1,7 @@
 import { PlatformRole, ProjectMemberRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { HttpError } from "../../utils/httpError.js";
+import { slugify } from "../../utils/slug.js";
 import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause, userIsOrgAdmin } from "../../lib/orgScope.js";
 import { getManagerTeamIds } from "../../lib/teamHierarchy.js";
 import { emitToProject } from "../../sockets/emit.js";
