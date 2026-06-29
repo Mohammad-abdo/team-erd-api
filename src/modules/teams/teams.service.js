@@ -7,6 +7,56 @@ import { isOrgAdmin, isSuperAdmin } from "../../middleware/adminAccess.js";
 import { getUserOrganizationId, DEFAULT_ORG_ID, orgWhereClause } from "../../lib/orgScope.js";
 import { getDescendantTeamIds, isManagerRole } from "../../lib/teamHierarchy.js";
 
+async function loadUserOrgContext(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, platformRole: true, organizationId: true },
+  });
+  if (!user) throw new HttpError(401, "Unauthorized");
+  return user;
+}
+
+async function loadOrganizationSummary(organizationId) {
+  if (!organizationId) return null;
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!org) return null;
+  return org;
+}
+
+export async function assertCanAccessTeam(userId, teamId) {
+  const user = await loadUserOrgContext(userId);
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { id: true, organizationId: true },
+  });
+  if (!team) throw new HttpError(404, "Team not found");
+
+  if (user.platformRole === PlatformRole.SUPER_ADMIN) return { user, team };
+
+  const userOrgId = user.organizationId ?? DEFAULT_ORG_ID;
+  const teamOrgId = team.organizationId ?? DEFAULT_ORG_ID;
+  if (teamOrgId !== userOrgId) {
+    throw new HttpError(403, "Team is outside your organization");
+  }
+
+  if (await isOrgAdmin(userId)) return { user, team };
+
+  const member = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId, userId } },
+  });
+  if (!member) throw new HttpError(403, "Team access required");
+  return { user, team, member };
+}
+
+async function assertSameOrganization(entityOrgId, otherOrgId, message) {
+  const left = entityOrgId ?? DEFAULT_ORG_ID;
+  const right = otherOrgId ?? DEFAULT_ORG_ID;
+  if (left !== right) throw new HttpError(403, message);
+}
+
 async function uniqueTeamSlug(base) {
   let slug = slugify(base);
   for (let i = 0; i < 20; i += 1) {
@@ -82,28 +132,45 @@ function mapTeam(team) {
 }
 
 export async function listTeamsForUser(userId) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { platformRole: true, organizationId: true },
-  });
+  const user = await loadUserOrgContext(userId);
+  const organization = await loadOrganizationSummary(user.organizationId ?? DEFAULT_ORG_ID);
   const admin = await isOrgAdmin(userId);
+  const orgId = user.organizationId ?? DEFAULT_ORG_ID;
+
+  let teams;
   if (admin) {
-    const teams = await prisma.team.findMany({
+    const rows = await prisma.team.findMany({
       where: orgWhereClause(user),
       orderBy: { name: "asc" },
       include: {
         _count: { select: { members: true, projects: true } },
       },
     });
-    return teams.map(mapTeam);
+    const membershipRows = await prisma.teamMember.findMany({
+      where: { userId, teamId: { in: rows.map((row) => row.id) } },
+      select: { teamId: true, role: true },
+    });
+    const roleByTeam = Object.fromEntries(membershipRows.map((row) => [row.teamId, row.role]));
+    teams = rows.map((row) => ({ ...mapTeam(row), myRole: roleByTeam[row.id] ?? null }));
+  } else {
+    const memberships = await prisma.teamMember.findMany({
+      where: {
+        userId,
+        team: { organizationId: orgId },
+      },
+      include: {
+        team: { include: { _count: { select: { members: true, projects: true } } } },
+      },
+    });
+    teams = memberships.map((m) => ({ ...mapTeam(m.team), myRole: m.role }));
   }
-  const memberships = await prisma.teamMember.findMany({
-    where: { userId },
-    include: {
-      team: { include: { _count: { select: { members: true, projects: true } } } },
-    },
-  });
-  return memberships.map((m) => ({ ...mapTeam(m.team), myRole: m.role }));
+
+  return { teams, organization };
+}
+
+export async function getTeamForUser(userId, teamId) {
+  await assertCanAccessTeam(userId, teamId);
+  return getTeam(teamId);
 }
 
 export async function getTeam(teamId) {
@@ -199,8 +266,17 @@ export async function deleteTeam(userId, teamId) {
 
 export async function addTeamMember(actorId, teamId, { userId, role }) {
   await assertTeamManager(actorId, teamId);
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { organizationId: true },
+  });
+  if (!team) throw new HttpError(404, "Team not found");
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user?.isActive) throw new HttpError(404, "User not found");
+  if (!(await isSuperAdmin(actorId))) {
+    await assertSameOrganization(team.organizationId, user.organizationId, "User is outside team organization");
+  }
 
   const member = await prisma.teamMember.upsert({
     where: { teamId_userId: { teamId, userId } },
@@ -236,8 +312,17 @@ export async function removeTeamMember(actorId, teamId, targetUserId) {
 
 export async function assignProjectToTeam(actorId, teamId, projectId) {
   await assertTeamManager(actorId, teamId);
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: { organizationId: true },
+  });
+  if (!team) throw new HttpError(404, "Team not found");
+
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) throw new HttpError(404, "Project not found");
+  if (!(await isSuperAdmin(actorId))) {
+    await assertSameOrganization(team.organizationId, project.organizationId, "Project is outside team organization");
+  }
 
   const link = await prisma.teamProject.upsert({
     where: { teamId_projectId: { teamId, projectId } },

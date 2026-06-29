@@ -3,12 +3,12 @@ import * as teamsService from "./teams.service.js";
 import * as teamDigestService from "./teamDigest.service.js";
 
 export const list = asyncHandler(async (req, res) => {
-  const teams = await teamsService.listTeamsForUser(req.user.sub);
-  res.json({ teams });
+  const payload = await teamsService.listTeamsForUser(req.user.sub);
+  res.json(payload);
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const team = await teamsService.getTeam(req.params.teamId);
+  const team = await teamsService.getTeamForUser(req.user.sub, req.params.teamId);
   res.json({ team });
 });
 

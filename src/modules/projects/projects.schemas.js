@@ -3,12 +3,27 @@ import { ProjectVisibility } from "@prisma/client";
 
 const visibility = z.nativeEnum(ProjectVisibility);
 
-const urlOrEmpty = z.union([z.string().url().max(500), z.literal(""), z.null()]);
+function normalizeOptionalUrl(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
+const optionalUrl = z.preprocess(
+  normalizeOptionalUrl,
+  z.union([z.string().url().max(500), z.null()]).optional(),
+);
+
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const exampleItem = z.object({
   title: z.string().min(1).max(200),
-  url: z.string().url().max(500).optional(),
+  url: z.preprocess(
+    normalizeOptionalUrl,
+    z.union([z.string().url().max(500), z.null()]).optional(),
+  ),
   description: z.string().max(2000).optional(),
 });
 
@@ -44,10 +59,10 @@ export const createProjectSchema = z.object({
   clientRequirements: z.string().max(50000).optional(),
   examplesJson: z.array(exampleItem).optional(),
   deploymentAccessJson: deploymentAccessJsonSchema.optional(),
-  figmaUrl: urlOrEmpty.optional(),
-  githubUrl: urlOrEmpty.optional(),
-  liveUrl: urlOrEmpty.optional(),
-  docsUrl: urlOrEmpty.optional(),
+  figmaUrl: optionalUrl,
+  githubUrl: optionalUrl,
+  liveUrl: optionalUrl,
+  docsUrl: optionalUrl,
 }).refine((d) => {
   if (!d.startDate || !d.deadline) return true;
   return new Date(d.deadline) >= new Date(d.startDate);
@@ -65,8 +80,8 @@ export const updateProjectSchema = z.object({
   clientRequirements: z.union([z.string().max(50000), z.null()]).optional(),
   examplesJson: z.union([z.array(exampleItem), z.null()]).optional(),
   deploymentAccessJson: z.union([deploymentAccessJsonSchema, z.null()]).optional(),
-  figmaUrl: urlOrEmpty.optional(),
-  githubUrl: urlOrEmpty.optional(),
-  liveUrl: urlOrEmpty.optional(),
-  docsUrl: urlOrEmpty.optional(),
+  figmaUrl: optionalUrl,
+  githubUrl: optionalUrl,
+  liveUrl: optionalUrl,
+  docsUrl: optionalUrl,
 });

@@ -152,10 +152,51 @@ function defaultProjectDates(input = {}) {
   return { startDate: start, deadline };
 }
 
+async function resolveProjectTeamIds(userId, organizationId, inputTeamIds = []) {
+  const orgId = organizationId ?? DEFAULT_ORG_ID;
+  const requested = [...new Set((Array.isArray(inputTeamIds) ? inputTeamIds : []).filter(Boolean))];
+
+  const [user, memberships] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { platformRole: true, organizationId: true },
+    }),
+    prisma.teamMember.findMany({
+      where: { userId, team: { organizationId: orgId } },
+      select: { teamId: true },
+    }),
+  ]);
+  const memberTeamIds = memberships.map((row) => row.teamId);
+
+  if (!requested.length) {
+    return memberTeamIds;
+  }
+
+  const teams = await prisma.team.findMany({
+    where: { id: { in: requested }, organizationId: orgId },
+    select: { id: true, organizationId: true },
+  });
+  const validRequested = teams.map((team) => team.id);
+
+  if (!validRequested.length) {
+    return memberTeamIds;
+  }
+
+  const isAdmin = userIsOrgAdmin(user);
+  for (const team of teams) {
+    if (!isAdmin && !memberTeamIds.includes(team.id)) {
+      throw new HttpError(403, "You can only assign projects to teams you belong to");
+    }
+  }
+
+  return validRequested;
+}
+
 export async function createProject(userId, input) {
   const slug = await uniqueSlug(input.name);
   const organizationId = await getUserOrganizationId(userId);
   const { startDate, deadline } = defaultProjectDates(input);
+  const teamIds = await resolveProjectTeamIds(userId, organizationId, input.teamIds);
 
   const emptyUrl = (v) => (v === "" ? null : v ?? null);
 
@@ -188,10 +229,10 @@ export async function createProject(userId, input) {
       },
     });
 
-    const teamIds = Array.isArray(input.teamIds) ? input.teamIds.filter(Boolean) : [];
-    if (teamIds.length) {
+    const teamIdsToLink = teamIds;
+    if (teamIdsToLink.length) {
       await tx.teamProject.createMany({
-        data: teamIds.map((teamId) => ({ teamId, projectId: p.id })),
+        data: teamIdsToLink.map((teamId) => ({ teamId, projectId: p.id })),
         skipDuplicates: true,
       });
     }
