@@ -249,6 +249,7 @@ model Project {
   deadline           DateTime?         @db.Date
   clientRequirements String?           @map("client_requirements") @db.Text
   examplesJson       Json?             @map("examples_json")
+  deploymentAccessJson Json?           @map("deployment_access_json")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
