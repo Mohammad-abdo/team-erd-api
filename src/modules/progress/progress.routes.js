@@ -18,10 +18,12 @@ r.get(
   "/capacity",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const members = await progressService.getTeamCapacity(req.user.sub, {
+    const data = await progressService.getTeamCapacity(req.user.sub, {
       teamId: req.query.teamId,
+      date: req.query.date,
+      month: req.query.month,
     });
-    res.json({ members });
+    res.json(data);
   }),
 );
 
